@@ -1,0 +1,39 @@
+name: pyrls
+description: Download and run the pyrls binary on GitHub-hosted runners.
+
+inputs:
+  command:
+    description: Command to run, for example `release pr` or `release publish`.
+    required: true
+  version:
+    description: Release tag to download, or `latest`.
+    required: false
+    default: latest
+  archive-name:
+    description: Release archive name to download.
+    required: false
+    default: pyrls-x86_64-unknown-linux-musl.tar.gz
+
+runs:
+  using: composite
+  steps:
+    - name: Download pyrls
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        version='${{ inputs.version }}'
+        archive='${{ inputs.archive-name }}'
+        repo='${{ github.action_repository }}'
+
+        if [ "$version" = "latest" ]; then
+          url="https://github.com/$repo/releases/latest/download/$archive"
+        else
+          url="https://github.com/$repo/releases/download/$version/$archive"
+        fi
+
+        temp_dir="$(mktemp -d)"
+        curl -fsSL "$url" -o "$temp_dir/$archive"
+        tar -xzf "$temp_dir/$archive" -C "$temp_dir"
+        chmod +x "$temp_dir/pyrls"
+        "$temp_dir/pyrls" ${{ inputs.command }}
