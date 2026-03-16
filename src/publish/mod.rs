@@ -160,10 +160,7 @@ fn build_plan_inner(
     let mut command = Vec::new();
     let mut env_pairs = Vec::new();
 
-    let use_oidc = publish.oidc
-        && !dry_run
-        && publish.token_env.is_none()
-        && oidc_env_available();
+    let use_oidc = publish.oidc && !dry_run && publish.token_env.is_none() && oidc_env_available();
 
     let oidc_token = if use_oidc {
         Some(exchange_oidc_token()?)
@@ -344,10 +341,7 @@ fn command_from_plan(plan: &PublishPlan) -> Command {
 }
 
 fn render_command(args: &[OsString]) -> String {
-    args.iter()
-        .map(shell_escape)
-        .collect::<Vec<_>>()
-        .join(" ")
+    args.iter().map(shell_escape).collect::<Vec<_>>().join(" ")
 }
 
 fn shell_escape(arg: &OsString) -> String {

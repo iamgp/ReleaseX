@@ -757,7 +757,11 @@ impl GitHubClient {
         })
     }
 
-    pub fn find_open_pr(&self, head_branch: &str, base_branch: &str) -> Result<Option<PullRequest>> {
+    pub fn find_open_pr(
+        &self,
+        head_branch: &str,
+        base_branch: &str,
+    ) -> Result<Option<PullRequest>> {
         let url = format!(
             "{}/repos/{}/{}/pulls?state=open&head={}:{}&base={}",
             self.api_base,
@@ -771,7 +775,13 @@ impl GitHubClient {
         Ok(prs.into_iter().next())
     }
 
-    pub fn create_pr(&self, title: &str, head: &str, base: &str, body: &str) -> Result<PullRequest> {
+    pub fn create_pr(
+        &self,
+        title: &str,
+        head: &str,
+        base: &str,
+        body: &str,
+    ) -> Result<PullRequest> {
         self.post(
             &format!(
                 "{}/repos/{}/{}/pulls",
@@ -832,7 +842,13 @@ impl GitHubClient {
         }
     }
 
-    pub fn create_release(&self, tag: &str, name: &str, body: &str, target: &str) -> Result<Release> {
+    pub fn create_release(
+        &self,
+        tag: &str,
+        name: &str,
+        body: &str,
+        target: &str,
+    ) -> Result<Release> {
         self.post(
             &format!(
                 "{}/repos/{}/{}/releases",

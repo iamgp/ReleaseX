@@ -228,10 +228,7 @@ fn add_labels_sends_correct_body() {
     client
         .add_labels(
             42,
-            &[
-                "autorelease: pending".to_string(),
-                "release".to_string(),
-            ],
+            &["autorelease: pending".to_string(), "release".to_string()],
         )
         .expect("add_labels should succeed");
 

@@ -41,7 +41,8 @@ pub fn rewrite_key(path: &Path, key: &str, version: &str) -> Result<()> {
                 return line.to_string();
             }
 
-            if !replaced && current_section == section
+            if !replaced
+                && current_section == section
                 && let Some((candidate, _)) = trimmed.split_once('=')
                 && candidate.trim() == name
             {

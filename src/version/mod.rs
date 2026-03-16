@@ -109,11 +109,8 @@ impl PartialOrd for Version {
 
 impl Ord for Version {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        let base = (self.major, self.minor, self.patch).cmp(&(
-            other.major,
-            other.minor,
-            other.patch,
-        ));
+        let base =
+            (self.major, self.minor, self.patch).cmp(&(other.major, other.minor, other.patch));
         if base != std::cmp::Ordering::Equal {
             return base;
         }
@@ -189,10 +186,7 @@ impl Version {
                     _ => bail!("unknown pre-release kind: {kind}"),
                 };
                 if new_pre < *pre {
-                    bail!(
-                        "cannot go from {} to {kind} pre-release",
-                        pre
-                    );
+                    bail!("cannot go from {} to {kind} pre-release", pre);
                 }
                 Ok(Self {
                     major: self.major,
