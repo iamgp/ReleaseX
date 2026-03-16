@@ -1,30 +1,55 @@
 name: pyrls
-description: Download and run the pyrls binary on GitHub-hosted runners.
+description: Automated release tool for Python projects — version bumps, changelogs, release PRs, and PyPI publishing.
+author: iamgp
+
+branding:
+  icon: package
+  color: blue
 
 inputs:
   command:
-    description: Command to run, for example `release pr` or `release publish`.
+    description: Command to run, for example `release pr` or `release tag`.
     required: true
   version:
     description: Release tag to download, or `latest`.
     required: false
     default: latest
-  archive-name:
-    description: Release archive name to download.
+  args:
+    description: Additional flags to pass (e.g. `--dry-run`).
     required: false
-    default: pyrls-x86_64-unknown-linux-musl.tar.gz
+    default: ""
 
 runs:
   using: composite
   steps:
+    - name: Detect platform
+      id: platform
+      shell: bash
+      run: |
+        case "$RUNNER_OS-$RUNNER_ARCH" in
+          Linux-X64)   target="x86_64-unknown-linux-musl" ;;
+          Linux-ARM64) target="aarch64-unknown-linux-gnu" ;;
+          macOS-X64)   target="x86_64-apple-darwin" ;;
+          macOS-ARM64) target="aarch64-apple-darwin" ;;
+          Windows-X64) target="x86_64-pc-windows-msvc" ;;
+          *) echo "::error::Unsupported platform: $RUNNER_OS-$RUNNER_ARCH"; exit 1 ;;
+        esac
+        echo "target=$target" >> "$GITHUB_OUTPUT"
+
     - name: Download pyrls
       shell: bash
       run: |
         set -euo pipefail
 
         version='${{ inputs.version }}'
-        archive='${{ inputs.archive-name }}'
+        target='${{ steps.platform.outputs.target }}'
         repo='${{ github.action_repository }}'
+
+        if [[ "$target" == *windows* ]]; then
+          archive="pyrls-${target}.zip"
+        else
+          archive="pyrls-${target}.tar.gz"
+        fi
 
         if [ "$version" = "latest" ]; then
           url="https://github.com/$repo/releases/latest/download/$archive"
@@ -33,7 +58,18 @@ runs:
         fi
 
         temp_dir="$(mktemp -d)"
+        echo "Downloading $url"
         curl -fsSL "$url" -o "$temp_dir/$archive"
-        tar -xzf "$temp_dir/$archive" -C "$temp_dir"
-        chmod +x "$temp_dir/pyrls"
-        "$temp_dir/pyrls" ${{ inputs.command }}
+
+        if [[ "$archive" == *.zip ]]; then
+          unzip -q "$temp_dir/$archive" -d "$temp_dir"
+        else
+          tar -xzf "$temp_dir/$archive" -C "$temp_dir"
+        fi
+
+        chmod +x "$temp_dir/pyrls" 2>/dev/null || true
+        echo "$temp_dir" >> "$GITHUB_PATH"
+
+    - name: Run pyrls
+      shell: bash
+      run: pyrls ${{ inputs.command }} ${{ inputs.args }}
