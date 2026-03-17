@@ -43,7 +43,7 @@ runs:
 
         version='${{ inputs.version }}'
         target='${{ steps.platform.outputs.target }}'
-        repo='${{ github.action_repository }}'
+        repo='${{ github.action_repository || 'iamgp/pyrls' }}'
 
         if [[ "$target" == *windows* ]]; then
           archive="pyrls-${target}.zip"
