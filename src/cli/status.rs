@@ -14,6 +14,10 @@ use crate::{
     progress, pypi,
 };
 
+fn display_version(config: &Config, version: &crate::version::Version) -> String {
+    ecosystem::format_version(version, ecosystem::config_ecosystem(config))
+}
+
 pub fn run(cli: &Cli, args: &StatusArgs) -> Result<()> {
     let repo = GitRepository::discover(".").context("failed to inspect git repository")?;
     let config_path = cli.config_path();
@@ -50,9 +54,9 @@ pub fn run(cli: &Cli, args: &StatusArgs) -> Result<()> {
             resolved_channel.as_ref(),
         )?;
     } else if args.short {
-        print_short(&analysis);
+        print_short(&config, &analysis);
     } else if cli.dry_run && !args.json && !args.short {
-        print_legacy(cli, &repo, &analysis)?;
+        print_legacy(&config, cli, &repo, &analysis)?;
     } else {
         print_dashboard(&repo, &config, &analysis, args, &branch)?;
     }
@@ -79,7 +83,12 @@ fn print_channel(branch: &str, channel: Option<&channels::ResolvedChannel>) {
     }
 }
 
-fn print_legacy(cli: &Cli, repo: &GitRepository, analysis: &ReleaseAnalysis) -> Result<()> {
+fn print_legacy(
+    config: &Config,
+    cli: &Cli,
+    repo: &GitRepository,
+    analysis: &ReleaseAnalysis,
+) -> Result<()> {
     println!("Repository: {}", repo.path().display());
     println!("Branch: {}", repo.current_branch()?);
     println!("Config: {}", cli.config_path().display());
@@ -87,7 +96,10 @@ fn print_legacy(cli: &Cli, repo: &GitRepository, analysis: &ReleaseAnalysis) -> 
         "Last tag: {}",
         repo.latest_tag()?.unwrap_or_else(|| "none".to_string())
     );
-    println!("Current version: {}", analysis.current_version);
+    println!(
+        "Current version: {}",
+        display_version(&config, &analysis.current_version)
+    );
     println!("Commit count: {}", analysis.commits.len());
     println!("Proposed bump: {}", analysis.bump.as_str());
     println!(
@@ -95,7 +107,7 @@ fn print_legacy(cli: &Cli, repo: &GitRepository, analysis: &ReleaseAnalysis) -> 
         analysis
             .next_version
             .as_ref()
-            .map(ToString::to_string)
+            .map(|version| display_version(&config, version))
             .unwrap_or_else(|| "unchanged".to_string())
     );
     println!("Release mode: {}", analysis.package_plan.release_mode);
@@ -114,11 +126,11 @@ fn print_legacy(cli: &Cli, repo: &GitRepository, analysis: &ReleaseAnalysis) -> 
             "  - {} [{}] current={} next={} bump={} reason={}",
             package.name,
             package.root,
-            package.current_version,
+            display_version(config, &package.current_version),
             package
                 .next_version
                 .as_ref()
-                .map(ToString::to_string)
+                .map(|version| display_version(&config, version))
                 .unwrap_or_else(|| "unchanged".to_string()),
             package.bump.as_str(),
             package.selection_reason
@@ -164,11 +176,11 @@ fn print_json(
             serde_json::json!({
                 "name": pkg.name,
                 "root": pkg.root,
-                "current_version": pkg.current_version.to_string(),
-                "next_version": pkg.next_version.as_ref().map(|v| v.to_string()),
+                "current_version": display_version(config, &pkg.current_version),
+                "next_version": pkg.next_version.as_ref().map(|v| display_version(config, v)),
                 "bump": pkg.bump.as_str(),
                 "selected": pkg.selected,
-                "published_version": published.map(|(_, v)| v.to_string()),
+                "published_version": published.map(|(_, v)| display_version(config, &v)),
                 "commit_count": pkg.commits.len(),
                 "commits": pkg.commits.iter().map(|c| {
                     serde_json::json!({
@@ -189,8 +201,8 @@ fn print_json(
             "version_range": c.version_range,
         })),
         "last_tag": repo.latest_tag().unwrap_or(None),
-        "current_version": analysis.current_version.to_string(),
-        "next_version": analysis.next_version.as_ref().map(|v| v.to_string()),
+        "current_version": display_version(config, &analysis.current_version),
+        "next_version": analysis.next_version.as_ref().map(|v| display_version(config, v)),
         "bump": analysis.bump.as_str(),
         "commit_count": analysis.commits.len(),
         "release_mode": analysis.package_plan.release_mode,
@@ -208,11 +220,19 @@ fn print_json(
     Ok(())
 }
 
-fn print_short(analysis: &ReleaseAnalysis) {
+fn print_short(config: &Config, analysis: &ReleaseAnalysis) {
     for pkg in &analysis.package_plan.packages {
         let version_info = match &pkg.next_version {
-            Some(next) => format!("{} → {} ({})", pkg.current_version, next, pkg.bump.as_str()),
-            None => format!("{} → no change", pkg.current_version),
+            Some(next) => format!(
+                "{} → {} ({})",
+                display_version(config, &pkg.current_version),
+                display_version(config, next),
+                pkg.bump.as_str()
+            ),
+            None => format!(
+                "{} → no change",
+                display_version(config, &pkg.current_version)
+            ),
         };
 
         let commit_info = if pkg.commits.is_empty() {
@@ -266,7 +286,7 @@ fn print_dashboard(
             Some((label, version)) => println!(
                 " {} {} published",
                 style(format!("{} {}", label, pkg.name)).cyan().bold(),
-                version
+                display_version(config, &version)
             ),
             None => {
                 let label = registry_label(repo, config);
@@ -287,7 +307,7 @@ fn print_package_section(
     pkg: &PackageReleaseAnalysis,
     branch: &str,
     last_tag: &Option<String>,
-    _config: &Config,
+    config: &Config,
     _args: &StatusArgs,
 ) {
     println!(
@@ -301,8 +321,8 @@ fn print_package_section(
             println!(
                 " {} {} → {} ({})",
                 style("Version").cyan().bold(),
-                pkg.current_version,
-                style(next).green(),
+                display_version(config, &pkg.current_version),
+                style(display_version(config, next)).green(),
                 style(pkg.bump.as_str()).yellow()
             );
         }
@@ -310,7 +330,7 @@ fn print_package_section(
             println!(
                 " {} {} (no change)",
                 style("Version").cyan().bold(),
-                pkg.current_version
+                display_version(config, &pkg.current_version)
             );
         }
     }

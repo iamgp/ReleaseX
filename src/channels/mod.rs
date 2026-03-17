@@ -6,7 +6,7 @@ use crate::{
     cratesio, ecosystem,
     git::GitRepository,
     pypi,
-    version::Version,
+    version::{Suffix, Version},
 };
 
 #[derive(Debug, Clone)]
@@ -51,10 +51,7 @@ pub fn apply_channel_to_analysis(
     };
 
     if let Some(kind) = &channel.prerelease {
-        let base = analysis
-            .next_version
-            .clone()
-            .unwrap_or_else(|| analysis.current_version.bump_patch());
+        let base = channel_base(&analysis.current_version, analysis.next_version.as_ref());
         let next = next_prerelease_for_package(repo, ".", &base, kind)?;
         analysis.next_version = Some(next);
 
@@ -62,10 +59,7 @@ pub fn apply_channel_to_analysis(
             if !package.selected {
                 continue;
             }
-            let pkg_base = package
-                .next_version
-                .clone()
-                .unwrap_or_else(|| package.current_version.bump_patch());
+            let pkg_base = channel_base(&package.current_version, package.next_version.as_ref());
             package.next_version = Some(next_prerelease_for_package(
                 repo,
                 &package.root,
@@ -83,6 +77,22 @@ pub fn apply_channel_to_analysis(
         prerelease: channel.prerelease.clone(),
         version_range: channel.version_range.clone(),
     }))
+}
+
+fn channel_base(current_version: &Version, planned_next: Option<&Version>) -> Version {
+    match current_version.suffix {
+        Some(Suffix::Pre(_)) => current_version.clone(),
+        _ => planned_next
+            .cloned()
+            .unwrap_or_else(|| prerelease_base(current_version)),
+    }
+}
+
+fn prerelease_base(version: &Version) -> Version {
+    match version.suffix {
+        Some(Suffix::Pre(_)) => version.clone(),
+        _ => version.bump_patch(),
+    }
 }
 
 fn next_prerelease_for_package(

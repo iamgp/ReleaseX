@@ -46,6 +46,7 @@ pub struct ReleaseTagPlan {
     pub target: String,
     pub release_notes: String,
     pub label: String,
+    pub prerelease: bool,
 }
 
 pub fn build_release_pr_plan(
@@ -138,6 +139,10 @@ pub fn build_release_tag_plan(
         ),
         tag_name,
         label: config.github.tagged_label.clone(),
+        prerelease: analysis
+            .next_version
+            .as_ref()
+            .is_some_and(|version| matches!(version.suffix, Some(crate::version::Suffix::Pre(_)))),
     })
 }
 
@@ -509,6 +514,7 @@ pub fn execute_release_tag(
                 &plan.title,
                 &plan.release_notes,
                 &config.release.branch,
+                plan.prerelease,
             )?;
         }
     }
@@ -558,6 +564,7 @@ pub fn execute_monorepo_release_tag(
                     &plan.title,
                     &plan.release_notes,
                     &config.release.branch,
+                    plan.prerelease,
                 )?;
             }
         }
@@ -966,6 +973,7 @@ impl GitHubClient {
         name: &str,
         body: &str,
         target: &str,
+        prerelease: bool,
     ) -> Result<Release> {
         self.post(
             &format!(
@@ -977,7 +985,8 @@ impl GitHubClient {
                 "target_commitish": target,
                 "name": name,
                 "body": body,
-                "generate_release_notes": false
+                "generate_release_notes": false,
+                "prerelease": prerelease
             }),
         )
     }

@@ -128,7 +128,8 @@ fn create_release_sends_correct_body() {
             "target_commitish": "main",
             "name": "Release v1.0.0",
             "body": "## What's new\n\n- feature",
-            "generate_release_notes": false
+            "generate_release_notes": false,
+            "prerelease": false
         })))
         .with_status(201)
         .with_header("content-type", "application/json")
@@ -142,6 +143,7 @@ fn create_release_sends_correct_body() {
             "Release v1.0.0",
             "## What's new\n\n- feature",
             "main",
+            false,
         )
         .expect("create_release should succeed");
 
@@ -322,7 +324,7 @@ fn create_release_returns_error_on_404() {
 
     let client = test_client(&server);
     let err = client
-        .create_release("v1.0.0", "Release v1.0.0", "notes", "main")
+        .create_release("v1.0.0", "Release v1.0.0", "notes", "main", false)
         .expect_err("should fail on 404");
 
     assert!(
