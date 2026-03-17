@@ -263,6 +263,14 @@ fn discover_packages(
         return Ok((packages, "cargo workspace (workspace.members)".to_string()));
     }
 
+    if let Some(go_roots) = discover_go_workspace(repo_root) {
+        let packages = go_roots
+            .iter()
+            .map(|package_root| load_package_definition(repo_root, package_root))
+            .collect::<Result<Vec<_>>>()?;
+        return Ok((packages, "go workspace (go.work use)".to_string()));
+    }
+
     let mut package_roots = Vec::new();
     scan_for_package_roots(repo_root, repo_root, &mut package_roots);
     package_roots.sort();
@@ -364,6 +372,51 @@ pub fn discover_cargo_workspace(repo_root: &Path) -> Option<Vec<String>> {
             let dir = repo_root.join(pattern);
             if dir.is_dir() {
                 roots.push(pattern.to_string());
+            }
+        }
+    }
+
+    roots.sort();
+    roots.dedup();
+
+    if roots.is_empty() { None } else { Some(roots) }
+}
+
+pub fn discover_go_workspace(repo_root: &Path) -> Option<Vec<String>> {
+    let go_work_path = repo_root.join("go.work");
+    let contents = fs::read_to_string(go_work_path).ok()?;
+    let mut roots = Vec::new();
+    let mut in_use_block = false;
+
+    for line in contents.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with("//") {
+            continue;
+        }
+
+        if let Some(path) = trimmed.strip_prefix("use ") {
+            let path = path.trim();
+            if path == "(" {
+                in_use_block = true;
+                continue;
+            }
+
+            let normalized = path.trim_matches('"').trim();
+            if normalized != "." {
+                roots.push(normalized.to_string());
+            }
+            continue;
+        }
+
+        if in_use_block {
+            if trimmed == ")" {
+                in_use_block = false;
+                continue;
+            }
+
+            let normalized = trimmed.trim_matches('"').trim();
+            if !normalized.is_empty() && normalized != "." {
+                roots.push(normalized.to_string());
             }
         }
     }

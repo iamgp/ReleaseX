@@ -75,7 +75,10 @@ pub fn tool_check_command(
             _ => vec!["uv", "--version"],
         },
         Ecosystem::Rust => vec!["cargo", "--version"],
-        Ecosystem::Go => vec!["go", "version"],
+        Ecosystem::Go => match publish_provider.unwrap_or("goreleaser") {
+            "goreleaser" => vec!["goreleaser", "--version"],
+            _ => vec!["go", "version"],
+        },
     }
 }
 

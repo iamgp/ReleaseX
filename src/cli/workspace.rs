@@ -3,8 +3,8 @@ use console::style;
 
 use crate::{
     analysis::{
-        discover_cargo_workspace, discover_uv_workspace, extract_dependency_names,
-        read_current_version,
+        discover_cargo_workspace, discover_go_workspace, discover_uv_workspace,
+        extract_dependency_names, read_current_version,
     },
     cli::Cli,
     config::{Config, Ecosystem},
@@ -123,6 +123,12 @@ fn resolve_workspace_members(
         && let Some(roots) = discover_cargo_workspace(repo_root)
     {
         return (roots, "cargo workspace (workspace.members)".to_string());
+    }
+
+    if active_ecosystem == Ecosystem::Go
+        && let Some(roots) = discover_go_workspace(repo_root)
+    {
+        return (roots, "go workspace (go.work use)".to_string());
     }
 
     (Vec::new(), "none".to_string())

@@ -223,6 +223,11 @@ fn build_plan_inner(
                 command.push(repository.into());
             }
         }
+        "goreleaser" => {
+            command.push("goreleaser".into());
+            command.push("release".into());
+            command.push("--clean".into());
+        }
         _ => bail!("unsupported publish provider `{provider}`"),
     }
 

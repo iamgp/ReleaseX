@@ -84,8 +84,8 @@ impl Config {
             bail!("publish.provider must not be empty");
         }
 
-        if !matches!(provider, "uv" | "twine" | "cargo") {
-            bail!("publish.provider must be one of: uv, twine, cargo");
+        if !matches!(provider, "uv" | "twine" | "cargo" | "goreleaser") {
+            bail!("publish.provider must be one of: uv, twine, cargo, goreleaser");
         }
 
         if self.publish.repository.trim().is_empty() {

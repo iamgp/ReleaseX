@@ -205,6 +205,72 @@ repository = "crates-io"
     );
 }
 
+#[test]
+fn release_publish_dry_run_reports_goreleaser() {
+    let repo_dir = tempdir().expect("tempdir");
+    let repo_path = repo_dir.path();
+
+    run(repo_path, &["git", "init", "-b", "main"]);
+    run(repo_path, &["git", "config", "user.name", "Relx Test"]);
+    run(
+        repo_path,
+        &["git", "config", "user.email", "relx@example.com"],
+    );
+
+    fs::write(
+        repo_path.join("go.mod"),
+        "module github.com/acme/demo-go\n\ngo 1.24.0\n",
+    )
+    .expect("write go.mod");
+    fs::write(repo_path.join("VERSION"), "0.2.0\n").expect("write VERSION");
+    fs::write(
+        repo_path.join("relx.toml"),
+        r#"[project]
+ecosystem = "go"
+
+[release]
+branch = "main"
+tag_prefix = "v"
+
+[[version_files]]
+path = "VERSION"
+pattern = "{version}"
+
+[publish]
+enabled = true
+provider = "goreleaser"
+repository = "github"
+"#,
+    )
+    .expect("write config");
+    run(repo_path, &["git", "add", "."]);
+    run(
+        repo_path,
+        &["git", "commit", "-m", "chore: prepare publish"],
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_relx"))
+        .args(["release", "publish", "--dry-run"])
+        .current_dir(repo_path)
+        .output()
+        .expect("run relx release publish");
+
+    assert!(
+        output.status.success(),
+        "release publish failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Provider: goreleaser"), "{stdout}");
+    assert!(stdout.contains("Target repository: github"), "{stdout}");
+    assert!(stdout.contains("Artifacts: 0"), "{stdout}");
+    assert!(
+        stdout.contains("Command: goreleaser release --clean"),
+        "{stdout}"
+    );
+}
+
 fn run(repo_path: &std::path::Path, args: &[&str]) {
     let status = Command::new(args[0])
         .args(&args[1..])
