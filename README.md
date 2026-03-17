@@ -2,7 +2,7 @@
 
 Automated release tooling for Git repositories. `relx` handles version bumps, changelogs, release PRs, GitHub Releases, and ecosystem-specific publishing from a single binary.
 
-Today the deepest support is still for Python repositories. The roadmap now includes first-class Rust and Go adapters under the ReleaseX product.
+ReleaseX now auto-detects Python, Rust, and Go repositories for config generation and build checks. Python remains the deepest publishing/workspace integration today.
 
 Full documentation lives under [`docs/`](./docs/README.md).
 
@@ -52,7 +52,7 @@ cargo build --release
 ## Quick Start
 
 ```bash
-# 1. Initialize config in your Python project
+# 1. Initialize config in your repository
 relx init
 
 # 2. Make some commits using Conventional Commits format
@@ -71,6 +71,10 @@ relx release pr
 All configuration lives in `relx.toml` at the repo root. Running `relx init` auto-detects your project layout and generates a starting config.
 
 ```toml
+# ── Project type ─────────────────────────────────────────────────
+[project]
+ecosystem = "python"                   # "python" | "rust" | "go"; optional if auto-detected
+
 # ── Release settings ─────────────────────────────────────────────
 [release]
 branch = "main"                         # branch to watch for new commits
@@ -153,7 +157,7 @@ release_mode = "unified"                # "unified" (one PR) or "per_package" (o
 
 #### `relx init`
 
-Generate a `relx.toml` config file by auto-detecting your project layout. Detects `pyproject.toml`, `setup.cfg`, and `__version__` patterns in Python files. Fails if a config file already exists.
+Generate a `relx.toml` config file by auto-detecting your project layout. Detects Python, Rust, and Go repositories and configures version files accordingly. Fails if a config file already exists.
 
 ```bash
 relx init
@@ -207,7 +211,7 @@ relx release publish --dry-run
 
 ## GitHub Actions
 
-The recommended workflow uses the `relx/action` wrapper, which downloads the correct binary for your runner — no Rust or Node runtime needed.
+The recommended workflow uses the `ReleaseX/action` wrapper, which downloads the correct binary for your runner — no Rust or Node runtime needed.
 
 ```yaml
 # .github/workflows/release.yml
@@ -230,7 +234,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: relx/action@v1
+      - uses: ReleaseX/action@v1
         with:
           command: release pr
         env:
@@ -242,7 +246,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: relx/action@v1
+      - uses: ReleaseX/action@v1
         with:
           command: release publish
         env:
