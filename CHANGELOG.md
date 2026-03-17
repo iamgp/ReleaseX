@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.4.0-beta.2] - 2026-03-17
+
+### Fixed
+- continue prerelease lines across beta releases
+- satisfy clippy in status output
+
+### Contributors
+Thanks to our contributors for this release:
+- @iamgp (2 commits)
+
 ## [0.4.0-beta.1] - 2026-03-17
 
 ### Added
