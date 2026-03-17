@@ -5,7 +5,7 @@
 Run:
 
 ```bash
-pyrls healthcheck
+relx healthcheck
 ```
 
 This is the fastest way to catch:
@@ -19,13 +19,13 @@ This is the fastest way to catch:
 
 ## Common problems
 
-## `pyrls.toml could not be loaded`
+## `relx.toml could not be loaded`
 
 Fix:
 
 - ensure the file exists
 - ensure TOML syntax is valid
-- run `pyrls validate`
+- run `relx validate`
 
 ## `nothing to release`
 
@@ -38,8 +38,8 @@ Possible reasons:
 Inspect with:
 
 ```bash
-pyrls status
-pyrls status --json
+relx status
+relx status --json
 ```
 
 ## GitHub API failures
@@ -59,7 +59,7 @@ api_base = "https://github.example.com/api/v3"
 
 ## Release PR not found in status
 
-`pyrls status` looks for an open PR on the generated release branch. If none is found:
+`relx status` looks for an open PR on the generated release branch. If none is found:
 
 - no PR has been created yet
 - the release branch prefix differs from the configured one
@@ -71,13 +71,13 @@ Check:
 
 - `uv` or `twine` is installed if needed
 - `pyproject.toml` exists
-- your build backend works outside `pyrls`
+- your build backend works outside `relx`
 
 Try:
 
 ```bash
 uv build
-pyrls release --snapshot
+relx release --snapshot
 ```
 
 ## Publish failures
@@ -91,10 +91,10 @@ Check:
 
 ## Workflow generation refuses overwrite
 
-`pyrls generate-ci` intentionally refuses to overwrite a differing workflow automatically. Use:
+`relx generate-ci` intentionally refuses to overwrite a differing workflow automatically. Use:
 
 ```bash
-pyrls generate-ci --dry-run
+relx generate-ci --dry-run
 ```
 
 Review the output or diff, then replace the workflow manually.
@@ -102,7 +102,7 @@ Review the output or diff, then replace the workflow manually.
 ## Operational recommendations
 
 - keep release automation running only on the intended release branches
-- use `pyrls healthcheck` before enabling auto-publish
+- use `relx healthcheck` before enabling auto-publish
 - prefer OIDC trusted publishing over static PyPI tokens
-- keep `pyrls.toml` small and explicit
+- keep `relx.toml` small and explicit
 - use `--dry-run` before changing release configuration

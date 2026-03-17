@@ -1,6 +1,6 @@
-# pyrls Documentation
+# ReleaseX Documentation
 
-This directory contains the full product documentation for `pyrls`.
+This directory contains the full product documentation for ReleaseX and the `relx` CLI.
 
 ## Guides
 
@@ -11,18 +11,19 @@ This directory contains the full product documentation for `pyrls`.
 - [Publishing](./publishing.md)
 - [Channels and Pre-releases](./channels.md)
 - [Monorepos and uv Workspaces](./workspaces.md)
+- [Rust and Go Roadmap](./ecosystem-roadmap.md)
 - [Troubleshooting and Operations](./troubleshooting.md)
 
-## What pyrls does
+## What ReleaseX Does
 
-`pyrls` automates Python releases for Git repositories. It reads your project version from source files, inspects Conventional Commit history, generates changelog entries, opens or updates release pull requests, tags releases, creates GitHub Releases, and optionally publishes artifacts to PyPI.
+`relx` automates releases for Git repositories. Today it is strongest on Python workflows, and the planned ReleaseX expansion adds first-class Rust and Go ecosystem support on top of the same core release engine.
 
 The release model is intentionally conservative:
 
 1. Commits accumulate on the release branch.
-2. `pyrls release pr` prepares the next release as a PR.
+2. `relx release pr` prepares the next release as a PR.
 3. A maintainer reviews and merges the PR.
-4. CI runs `pyrls release tag`.
-5. CI optionally runs `pyrls release publish`.
+4. CI runs `relx release tag`.
+5. CI optionally runs `relx release publish`.
 
 This preserves human approval for every release while removing the repetitive mechanics.

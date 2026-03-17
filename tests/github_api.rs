@@ -1,5 +1,5 @@
 use mockito::{Matcher, Server};
-use pyrls::github::{GitHubClient, RepoRef};
+use relx::github::{GitHubClient, RepoRef};
 
 fn test_client(server: &Server) -> GitHubClient {
     GitHubClient::new(
@@ -22,7 +22,7 @@ fn create_pr_sends_correct_body() {
         .match_header("Accept", "application/vnd.github+json")
         .match_body(Matcher::Json(serde_json::json!({
             "title": "chore(release): v1.0.0",
-            "head": "pyrls/release/v1.0.0",
+            "head": "relx/release/v1.0.0",
             "base": "main",
             "body": "Release notes"
         })))
@@ -35,7 +35,7 @@ fn create_pr_sends_correct_body() {
     let pr = client
         .create_pr(
             "chore(release): v1.0.0",
-            "pyrls/release/v1.0.0",
+            "relx/release/v1.0.0",
             "main",
             "Release notes",
         )
@@ -76,7 +76,7 @@ fn find_open_pr_returns_first_match() {
         .mock("GET", "/repos/acme/demo/pulls")
         .match_query(Matcher::AllOf(vec![
             Matcher::UrlEncoded("state".into(), "open".into()),
-            Matcher::UrlEncoded("head".into(), "acme:pyrls/release/v1.0.0".into()),
+            Matcher::UrlEncoded("head".into(), "acme:relx/release/v1.0.0".into()),
             Matcher::UrlEncoded("base".into(), "main".into()),
         ]))
         .with_status(200)
@@ -86,7 +86,7 @@ fn find_open_pr_returns_first_match() {
 
     let client = test_client(&server);
     let pr = client
-        .find_open_pr("pyrls/release/v1.0.0", "main")
+        .find_open_pr("relx/release/v1.0.0", "main")
         .expect("find_open_pr should succeed");
 
     assert_eq!(pr.unwrap().number, 10);
@@ -249,7 +249,7 @@ fn ensure_label_creates_label_when_not_found() {
         .match_body(Matcher::Json(serde_json::json!({
             "name": "autorelease: pending",
             "color": "ededed",
-            "description": "Managed by pyrls"
+            "description": "Managed by relx"
         })))
         .with_status(201)
         .with_header("content-type", "application/json")

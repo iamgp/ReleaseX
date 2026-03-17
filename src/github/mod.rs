@@ -209,9 +209,9 @@ pub fn execute_release_pr(
         &clone_path,
         [
             "-c",
-            "user.name=pyrls",
+            "user.name=relx",
             "-c",
-            "user.email=pyrls@users.noreply.github.com",
+            "user.email=relx@users.noreply.github.com",
             "commit",
             "-m",
             plan.title.as_str(),
@@ -329,9 +329,9 @@ fn execute_monorepo_unified_pr(
         &clone_path,
         [
             "-c",
-            "user.name=pyrls",
+            "user.name=relx",
             "-c",
-            "user.email=pyrls@users.noreply.github.com",
+            "user.email=relx@users.noreply.github.com",
             "commit",
             "-m",
             plan.title.as_str(),
@@ -432,9 +432,9 @@ fn execute_monorepo_per_package_pr(
         &clone_path,
         [
             "-c",
-            "user.name=pyrls",
+            "user.name=relx",
             "-c",
-            "user.email=pyrls@users.noreply.github.com",
+            "user.email=relx@users.noreply.github.com",
             "commit",
             "-m",
             plan.title.as_str(),
@@ -876,7 +876,7 @@ impl GitHubClient {
                 "{}/repos/{}/{}/labels",
                 self.api_base, self.repo.owner, self.repo.name
             ),
-            &json!({ "name": name, "color": "ededed", "description": "Managed by pyrls" }),
+            &json!({ "name": name, "color": "ededed", "description": "Managed by relx" }),
         )?;
         Ok(())
     }
@@ -929,7 +929,7 @@ impl GitHubClient {
         let response = ureq::get(&url)
             .set("Authorization", &format!("Bearer {}", self.token))
             .set("Accept", "application/vnd.github+json")
-            .set("User-Agent", "pyrls")
+            .set("User-Agent", "relx")
             .call();
 
         match response {
@@ -992,7 +992,7 @@ impl GitHubClient {
         let response = ureq::get(url)
             .set("Authorization", &format!("Bearer {}", self.token))
             .set("Accept", "application/vnd.github+json")
-            .set("User-Agent", "pyrls")
+            .set("User-Agent", "relx")
             .call();
         read_response(response)
     }
@@ -1001,7 +1001,7 @@ impl GitHubClient {
         let response = ureq::post(url)
             .set("Authorization", &format!("Bearer {}", self.token))
             .set("Accept", "application/vnd.github+json")
-            .set("User-Agent", "pyrls")
+            .set("User-Agent", "relx")
             .send_json(body);
         parse_json(read_response(response)?)
     }
@@ -1010,7 +1010,7 @@ impl GitHubClient {
         let response = ureq::request("PATCH", url)
             .set("Authorization", &format!("Bearer {}", self.token))
             .set("Accept", "application/vnd.github+json")
-            .set("User-Agent", "pyrls")
+            .set("User-Agent", "relx")
             .send_json(body);
         parse_json(read_response(response)?)
     }
@@ -1047,17 +1047,17 @@ mod tests {
     #[test]
     fn parses_common_github_remote_formats() {
         assert_eq!(
-            parse_remote_url("git@github.com:acme/pyrls.git"),
+            parse_remote_url("git@github.com:acme/relx.git"),
             Some(super::RepoRef {
                 owner: "acme".into(),
-                name: "pyrls".into()
+                name: "relx".into()
             })
         );
         assert_eq!(
-            parse_remote_url("https://github.com/acme/pyrls.git"),
+            parse_remote_url("https://github.com/acme/relx.git"),
             Some(super::RepoRef {
                 owner: "acme".into(),
-                name: "pyrls".into()
+                name: "relx".into()
             })
         );
     }
@@ -1075,7 +1075,7 @@ mod tests {
         let analysis = sample_analysis();
 
         let plan = build_release_pr_plan(&config, &analysis, "main").expect("plan");
-        assert_eq!(plan.branch, "pyrls/release/v1.2.0");
+        assert_eq!(plan.branch, "relx/release/v1.2.0");
         assert!(plan.title.contains("v1.2.0"));
         assert!(plan.body.contains("Release summary"));
     }
@@ -1089,10 +1089,10 @@ mod tests {
         )
         .expect("write");
         run(dir.path(), &["git", "init", "-b", "main"]);
-        run(dir.path(), &["git", "config", "user.name", "Pyrls Test"]);
+        run(dir.path(), &["git", "config", "user.name", "Relx Test"]);
         run(
             dir.path(),
-            &["git", "config", "user.email", "pyrls@example.com"],
+            &["git", "config", "user.email", "relx@example.com"],
         );
         run(dir.path(), &["git", "add", "."]);
         run(dir.path(), &["git", "commit", "-m", "feat: initial"]);

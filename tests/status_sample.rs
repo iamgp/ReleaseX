@@ -8,10 +8,10 @@ fn status_dry_run_reports_bump_for_sample_repo() {
     let repo_path = repo_dir.path();
 
     run(repo_path, &["git", "init", "-b", "main"]);
-    run(repo_path, &["git", "config", "user.name", "Pyrls Test"]);
+    run(repo_path, &["git", "config", "user.name", "Relx Test"]);
     run(
         repo_path,
-        &["git", "config", "user.email", "pyrls@example.com"],
+        &["git", "config", "user.email", "relx@example.com"],
     );
 
     fs::write(
@@ -20,7 +20,7 @@ fn status_dry_run_reports_bump_for_sample_repo() {
     )
     .expect("write pyproject");
     fs::write(
-        repo_path.join("pyrls.toml"),
+        repo_path.join("relx.toml"),
         r#"[release]
 branch = "main"
 tag_prefix = "v"
@@ -60,11 +60,11 @@ fix = "Fixed"
         &["git", "commit", "-m", "fix: trim whitespace in parser"],
     );
 
-    let output = Command::new(env!("CARGO_BIN_EXE_pyrls"))
+    let output = Command::new(env!("CARGO_BIN_EXE_relx"))
         .args(["status", "--dry-run"])
         .current_dir(repo_path)
         .output()
-        .expect("run pyrls status");
+        .expect("run relx status");
 
     assert!(
         output.status.success(),
@@ -87,10 +87,10 @@ fn status_reports_monorepo_selected_package_set() {
     let repo_path = repo_dir.path();
 
     run(repo_path, &["git", "init", "-b", "main"]);
-    run(repo_path, &["git", "config", "user.name", "Pyrls Test"]);
+    run(repo_path, &["git", "config", "user.name", "Relx Test"]);
     run(
         repo_path,
-        &["git", "config", "user.email", "pyrls@example.com"],
+        &["git", "config", "user.email", "relx@example.com"],
     );
 
     fs::create_dir_all(repo_path.join("packages/core/src/core")).expect("create core");
@@ -116,7 +116,7 @@ fn status_reports_monorepo_selected_package_set() {
     )
     .expect("write cli init");
     fs::write(
-        repo_path.join("pyrls.toml"),
+        repo_path.join("relx.toml"),
         r#"[release]
 branch = "main"
 tag_prefix = "v"
@@ -149,11 +149,11 @@ release_mode = "unified"
         &["git", "commit", "-m", "feat: add core feature"],
     );
 
-    let output = Command::new(env!("CARGO_BIN_EXE_pyrls"))
+    let output = Command::new(env!("CARGO_BIN_EXE_relx"))
         .args(["status", "--dry-run"])
         .current_dir(repo_path)
         .output()
-        .expect("run pyrls status");
+        .expect("run relx status");
 
     assert!(
         output.status.success(),

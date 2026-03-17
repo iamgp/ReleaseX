@@ -15,7 +15,8 @@ mod version_files;
 fn main() {
     if let Err(e) = cli::run() {
         eprintln!("error: {e}");
-        if std::env::var_os("PYRLS_VERBOSE").is_some() {
+        if std::env::var_os("RELX_VERBOSE").is_some() || std::env::var_os("PYRLS_VERBOSE").is_some()
+        {
             for cause in e.chain().skip(1) {
                 eprintln!("  caused by: {cause}");
             }

@@ -5,18 +5,18 @@
 Start with:
 
 ```bash
-pyrls generate-ci
+relx generate-ci
 ```
 
 Preview first:
 
 ```bash
-pyrls generate-ci --dry-run
+relx generate-ci --dry-run
 ```
 
-`pyrls` reads:
+`relx` reads:
 
-- `pyrls.toml`
+- `relx.toml`
 - `pyproject.toml`
 - publishing settings
 - monorepo settings
@@ -45,7 +45,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: pyrls/action@v1
+      - uses: relx/action@v1
         with:
           command: release pr
         env:
@@ -58,7 +58,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
       - run: uv build
-      - uses: pyrls/action@v1
+      - uses: relx/action@v1
         with:
           command: release publish
         env:
@@ -78,9 +78,9 @@ For PyPI OIDC trusted publishing:
 
 ## Recommended pipeline shape
 
-1. On push to the release branch, run `pyrls release pr`.
-2. On tag creation, run `pyrls release publish`.
-3. Optionally run `pyrls healthcheck` and `pyrls status --json` in CI for observability.
+1. On push to the release branch, run `relx release pr`.
+2. On tag creation, run `relx release publish`.
+3. Optionally run `relx healthcheck` and `relx status --json` in CI for observability.
 
 If you use channels for both stable and beta releases, trigger on both branches:
 
@@ -99,11 +99,11 @@ No special GitHub Action input is required; the branch and channel config drive 
 
 ## Maturin projects
 
-When the build backend includes `maturin`, `pyrls generate-ci` emits a `maturin-action` build step instead of a plain `uv build`.
+When the build backend includes `maturin`, `relx generate-ci` emits a `maturin-action` build step instead of a plain `uv build`.
 
 ## Existing workflow files
 
-If the configured workflow file already exists and differs from the generated output, `pyrls`:
+If the configured workflow file already exists and differs from the generated output, `relx`:
 
 1. prints a line-oriented diff
 2. refuses to overwrite it automatically

@@ -8,10 +8,10 @@ fn release_publish_dry_run_reports_uv_provider_and_target() {
     let repo_path = repo_dir.path();
 
     run(repo_path, &["git", "init", "-b", "main"]);
-    run(repo_path, &["git", "config", "user.name", "Pyrls Test"]);
+    run(repo_path, &["git", "config", "user.name", "Relx Test"]);
     run(
         repo_path,
-        &["git", "config", "user.email", "pyrls@example.com"],
+        &["git", "config", "user.email", "relx@example.com"],
     );
 
     fs::create_dir_all(repo_path.join("dist")).expect("create dist");
@@ -23,7 +23,7 @@ fn release_publish_dry_run_reports_uv_provider_and_target() {
     fs::write(repo_path.join("dist/demo-0.2.0.tar.gz"), "sdist").expect("write sdist");
     fs::write(repo_path.join("dist/demo-0.2.0-py3-none-any.whl"), "wheel").expect("write wheel");
     fs::write(
-        repo_path.join("pyrls.toml"),
+        repo_path.join("relx.toml"),
         r#"[release]
 branch = "main"
 tag_prefix = "v"
@@ -47,11 +47,11 @@ trusted_publishing = true
         &["git", "commit", "-m", "chore: prepare publish"],
     );
 
-    let output = Command::new(env!("CARGO_BIN_EXE_pyrls"))
+    let output = Command::new(env!("CARGO_BIN_EXE_relx"))
         .args(["release", "publish", "--dry-run"])
         .current_dir(repo_path)
         .output()
-        .expect("run pyrls release publish");
+        .expect("run relx release publish");
 
     assert!(
         output.status.success(),
@@ -75,10 +75,10 @@ fn release_publish_dry_run_reports_twine_command_and_env() {
     let repo_path = repo_dir.path();
 
     run(repo_path, &["git", "init", "-b", "main"]);
-    run(repo_path, &["git", "config", "user.name", "Pyrls Test"]);
+    run(repo_path, &["git", "config", "user.name", "Relx Test"]);
     run(
         repo_path,
-        &["git", "config", "user.email", "pyrls@example.com"],
+        &["git", "config", "user.email", "relx@example.com"],
     );
 
     fs::create_dir_all(repo_path.join("dist")).expect("create dist");
@@ -89,7 +89,7 @@ fn release_publish_dry_run_reports_twine_command_and_env() {
     .expect("write pyproject");
     fs::write(repo_path.join("dist/demo-0.2.0.tar.gz"), "sdist").expect("write sdist");
     fs::write(
-        repo_path.join("pyrls.toml"),
+        repo_path.join("relx.toml"),
         r#"[release]
 branch = "main"
 tag_prefix = "v"
@@ -113,12 +113,12 @@ token_env = "PYPI_TOKEN"
         &["git", "commit", "-m", "chore: prepare publish"],
     );
 
-    let output = Command::new(env!("CARGO_BIN_EXE_pyrls"))
+    let output = Command::new(env!("CARGO_BIN_EXE_relx"))
         .args(["release", "publish", "--dry-run"])
         .env("PYPI_TOKEN", "secret")
         .current_dir(repo_path)
         .output()
-        .expect("run pyrls release publish");
+        .expect("run relx release publish");
 
     assert!(
         output.status.success(),

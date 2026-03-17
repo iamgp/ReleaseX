@@ -37,7 +37,7 @@ impl HealthcheckReport {
 
     fn print(&self) {
         println!();
-        println!("{}", style("pyrls healthcheck").bold());
+        println!("{}", style("relx healthcheck").bold());
 
         for (category, checks) in &self.categories {
             println!();
@@ -105,7 +105,7 @@ pub fn run(cli: &Cli, args: &HealthcheckArgs) -> Result<()> {
     let filter = args.only.as_deref().map(|s| s.to_lowercase());
     let should_run = |cat: &str| filter.as_deref().is_none() || filter.as_deref() == Some(cat);
 
-    let config = Config::load(&cli.config).ok();
+    let config = Config::load(&cli.config_path()).ok();
     let repo = GitRepository::discover(".").ok();
 
     let mut report = HealthcheckReport::new();
@@ -147,7 +147,7 @@ fn check_config(cli: &Cli, config: &Option<Config>) -> Vec<CheckResult> {
         Some(cfg) => {
             checks.push(CheckResult::Pass(format!(
                 "{} is valid",
-                cli.config.display()
+                cli.config_path().display()
             )));
 
             let pyproject_exists = Path::new("pyproject.toml").exists();
@@ -188,7 +188,7 @@ fn check_config(cli: &Cli, config: &Option<Config>) -> Vec<CheckResult> {
         None => {
             checks.push(CheckResult::Fail(format!(
                 "{} could not be loaded",
-                cli.config.display()
+                cli.config_path().display()
             )));
         }
     }
@@ -347,7 +347,7 @@ fn check_github(config: &Option<Config>, repo: &Option<GitRepository>) -> Vec<Ch
             );
             match ureq::get(&url)
                 .set("Authorization", &format!("Bearer {}", token))
-                .set("User-Agent", "pyrls")
+                .set("User-Agent", "relx")
                 .call()
             {
                 Ok(_) => {

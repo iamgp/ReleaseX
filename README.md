@@ -1,11 +1,13 @@
-# pyrls
+# ReleaseX
 
-Automated Python release tooling for Git repositories — a single binary that handles version bumps, changelogs, release PRs, GitHub Releases, and PyPI publishing.
+Automated release tooling for Git repositories. `relx` handles version bumps, changelogs, release PRs, GitHub Releases, and ecosystem-specific publishing from a single binary.
+
+Today the deepest support is still for Python repositories. The roadmap now includes first-class Rust and Go adapters under the ReleaseX product.
 
 Full documentation lives under [`docs/`](./docs/README.md).
 
 <!-- badges -->
-<!-- ![CI](https://github.com/OWNER/pyrls/actions/workflows/ci.yml/badge.svg) -->
+<!-- ![CI](https://github.com/OWNER/ReleaseX/actions/workflows/ci.yml/badge.svg) -->
 <!-- ![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg) -->
 
 ## Features
@@ -27,9 +29,9 @@ Download the latest binary for your platform:
 
 ```bash
 # Linux (x86_64)
-curl -L https://github.com/OWNER/pyrls/releases/latest/download/pyrls-linux-x86_64 -o pyrls
-chmod +x pyrls
-sudo mv pyrls /usr/local/bin/
+curl -L https://github.com/OWNER/ReleaseX/releases/latest/download/relx-linux-x86_64 -o relx
+chmod +x relx
+sudo mv relx /usr/local/bin/
 ```
 
 ### From source
@@ -41,32 +43,32 @@ cargo install --path .
 Or build directly:
 
 ```bash
-git clone https://github.com/OWNER/pyrls.git
-cd pyrls
+git clone https://github.com/OWNER/ReleaseX.git
+cd ReleaseX
 cargo build --release
-# Binary at ./target/release/pyrls
+# Binary at ./target/release/relx
 ```
 
 ## Quick Start
 
 ```bash
 # 1. Initialize config in your Python project
-pyrls init
+relx init
 
 # 2. Make some commits using Conventional Commits format
 git commit -m "feat: add user authentication"
 git commit -m "fix: handle empty config gracefully"
 
-# 3. Check what pyrls would do
-pyrls status
+# 3. Check what relx would do
+relx status
 
 # 4. Create a release PR on GitHub
-pyrls release pr
+relx release pr
 ```
 
 ## Configuration
 
-All configuration lives in `pyrls.toml` at the repo root. Running `pyrls init` auto-detects your project layout and generates a starting config.
+All configuration lives in `relx.toml` at the repo root. Running `relx init` auto-detects your project layout and generates a starting config.
 
 ```toml
 # ── Release settings ─────────────────────────────────────────────
@@ -125,7 +127,7 @@ trusted_publishing = false              # enable OIDC Trusted Publisher (no toke
 # repo = "myproject"                    # auto-detected from git remote
 api_base = "https://api.github.com"     # override for GitHub Enterprise
 token_env = "GITHUB_TOKEN"             # env var to read the token from
-release_branch_prefix = "pyrls/release" # branch name prefix for release PRs
+release_branch_prefix = "relx/release" # branch name prefix for release PRs
 pending_label = "autorelease: pending"  # label applied to open release PRs
 tagged_label = "autorelease: tagged"    # label applied after tagging
 
@@ -141,7 +143,7 @@ release_mode = "unified"                # "unified" (one PR) or "per_package" (o
 ### Global flags
 
 ```
---config <PATH>   Path to config file (default: pyrls.toml)
+--config <PATH>   Path to config file (default: relx.toml)
 --dry-run         Print what would happen without making changes
 --verbose         Enable debug output
 --no-color        Disable ANSI colour output
@@ -149,63 +151,63 @@ release_mode = "unified"                # "unified" (one PR) or "per_package" (o
 
 ### Commands
 
-#### `pyrls init`
+#### `relx init`
 
-Generate a `pyrls.toml` config file by auto-detecting your project layout. Detects `pyproject.toml`, `setup.cfg`, and `__version__` patterns in Python files. Fails if a config file already exists.
+Generate a `relx.toml` config file by auto-detecting your project layout. Detects `pyproject.toml`, `setup.cfg`, and `__version__` patterns in Python files. Fails if a config file already exists.
 
 ```bash
-pyrls init
-pyrls init --dry-run   # preview the generated config without writing it
+relx init
+relx init --dry-run   # preview the generated config without writing it
 ```
 
-#### `pyrls status`
+#### `relx status`
 
 Analyze commits since the last release and display a summary: current version, proposed bump, next version, pending changelog entries, and package plan details.
 
 ```bash
-pyrls status
-pyrls status --dry-run
+relx status
+relx status --dry-run
 ```
 
-#### `pyrls validate`
+#### `relx validate`
 
 Parse and validate the config file. Reports the release branch and number of configured version files.
 
 ```bash
-pyrls validate
-pyrls validate --config path/to/pyrls.toml
+relx validate
+relx validate --config path/to/relx.toml
 ```
 
-#### `pyrls release pr`
+#### `relx release pr`
 
 Create or update the release PR on GitHub. The PR includes the proposed changelog entry, version bump, and is labeled `autorelease: pending`. In monorepo mode, creates one PR per package or a unified PR depending on config.
 
 ```bash
-pyrls release pr
-pyrls release pr --dry-run
+relx release pr
+relx release pr --dry-run
 ```
 
-#### `pyrls release tag`
+#### `relx release tag`
 
 Create a git tag and GitHub Release with the changelog section as release notes. Typically called by CI after the release PR is merged. Labels the merged PR with `autorelease: tagged`.
 
 ```bash
-pyrls release tag
-pyrls release tag --dry-run
+relx release tag
+relx release tag --dry-run
 ```
 
-#### `pyrls release publish`
+#### `relx release publish`
 
 Publish distributions to PyPI (or a custom index) using the configured provider (`uv` or `twine`). Requires `[publish] enabled = true` in config.
 
 ```bash
-pyrls release publish
-pyrls release publish --dry-run
+relx release publish
+relx release publish --dry-run
 ```
 
 ## GitHub Actions
 
-The recommended workflow uses the `pyrls/action` wrapper, which downloads the correct binary for your runner — no Rust or Node runtime needed.
+The recommended workflow uses the `relx/action` wrapper, which downloads the correct binary for your runner — no Rust or Node runtime needed.
 
 ```yaml
 # .github/workflows/release.yml
@@ -228,7 +230,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: pyrls/action@v1
+      - uses: relx/action@v1
         with:
           command: release pr
         env:
@@ -240,7 +242,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: pyrls/action@v1
+      - uses: relx/action@v1
         with:
           command: release publish
         env:
@@ -249,12 +251,12 @@ jobs:
 
 ## How It Works
 
-pyrls follows the **Release PR model**:
+relx follows the **Release PR model**:
 
-1. **Scan** — on every push to main, pyrls analyzes new commits since the last release tag
+1. **Scan** — on every push to main, relx analyzes new commits since the last release tag
 2. **Accumulate** — it opens (or updates) a Release PR containing the proposed version bump and changelog entry
-3. **Release** — when a maintainer merges the PR, CI calls `pyrls release tag` to create the git tag and GitHub Release
-4. **Publish** — optionally, CI calls `pyrls release publish` to push distributions to PyPI
+3. **Release** — when a maintainer merges the PR, CI calls `relx release tag` to create the git tag and GitHub Release
+4. **Publish** — optionally, CI calls `relx release publish` to push distributions to PyPI
 
 This gives maintainers **human-in-the-loop control** — releases only happen when you merge the PR.
 
@@ -270,7 +272,7 @@ Version bumps are derived from commit messages:
 
 ## Pre-release Versions
 
-pyrls supports PEP 440 pre-release versions:
+relx supports PEP 440 pre-release versions:
 
 - Alpha: `1.2.0a1`
 - Beta: `1.2.0b1`
@@ -285,7 +287,7 @@ Pre-release and finalization support is planned via `--pre-release` and `--final
 Enable monorepo mode to manage multiple Python packages in a single repository with independent versioning.
 
 ```toml
-# pyrls.toml
+# ReleaseX.toml
 [monorepo]
 enabled = true
 packages = [
@@ -299,7 +301,7 @@ release_mode = "per_package"  # or "unified"
 - **`per_package`** — one release PR per changed package
 - **`unified`** — one PR covering all changed packages
 
-Each package directory should contain its own `pyproject.toml`. pyrls detects which packages have changed and creates version bumps independently.
+Each package directory should contain its own `pyproject.toml`. relx detects which packages have changed and creates version bumps independently.
 
 When monorepo mode is enabled, the `[[version_files]]` requirement at the top level is relaxed — version files are resolved per package instead.
 

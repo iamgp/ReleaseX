@@ -8,10 +8,10 @@ fn init_generates_repo_aware_config() {
     let repo_path = repo_dir.path();
 
     run(repo_path, &["git", "init", "-b", "trunk"]);
-    run(repo_path, &["git", "config", "user.name", "Pyrls Test"]);
+    run(repo_path, &["git", "config", "user.name", "Relx Test"]);
     run(
         repo_path,
-        &["git", "config", "user.email", "pyrls@example.com"],
+        &["git", "config", "user.email", "relx@example.com"],
     );
     run(
         repo_path,
@@ -41,18 +41,18 @@ fn init_generates_repo_aware_config() {
     )
     .expect("write init");
 
-    let init = Command::new(env!("CARGO_BIN_EXE_pyrls"))
+    let init = Command::new(env!("CARGO_BIN_EXE_relx"))
         .arg("init")
         .current_dir(repo_path)
         .output()
-        .expect("run pyrls init");
+        .expect("run relx init");
     assert!(
         init.status.success(),
         "init failed: {}",
         String::from_utf8_lossy(&init.stderr)
     );
 
-    let config = fs::read_to_string(repo_path.join("pyrls.toml")).expect("read config");
+    let config = fs::read_to_string(repo_path.join("relx.toml")).expect("read config");
     assert!(config.contains("branch = \"trunk\""), "{config}");
     assert!(config.contains("initial_version = \"0.3.0\""), "{config}");
     assert!(config.contains("path = \"pyproject.toml\""), "{config}");
@@ -68,11 +68,11 @@ fn init_generates_repo_aware_config() {
     assert!(config.contains("owner = \"acme\""), "{config}");
     assert!(config.contains("repo = \"demo\""), "{config}");
 
-    let validate = Command::new(env!("CARGO_BIN_EXE_pyrls"))
+    let validate = Command::new(env!("CARGO_BIN_EXE_relx"))
         .arg("validate")
         .current_dir(repo_path)
         .output()
-        .expect("run pyrls validate");
+        .expect("run relx validate");
     assert!(
         validate.status.success(),
         "validate failed: {}",

@@ -96,7 +96,7 @@ fn fetch_project_from_base(base_url: &str, project_name: &str) -> Result<PypiRes
         project_name
     );
     let response = ureq::get(&url)
-        .set("User-Agent", "pyrls")
+        .set("User-Agent", "relx")
         .call()
         .with_context(|| format!("failed to fetch PyPI metadata for {project_name}"))?;
     response

@@ -8,13 +8,13 @@ use crate::{
 };
 
 pub fn run(cli: &Cli) -> Result<()> {
-    let config = Config::load(&cli.config)?;
+    let config = Config::load(&cli.config_path())?;
     let repo_root = std::env::current_dir().context("failed to get current directory")?;
 
     let (member_roots, source) = resolve_workspace_members(&repo_root, &config);
 
     println!();
-    println!("{}", style("pyrls workspace").bold());
+    println!("{}", style("relx workspace").bold());
     println!();
     println!(" {} pyproject.toml", style("Workspace root:").cyan().bold());
     println!(" {} {}", style("Discovery:").cyan().bold(), source);

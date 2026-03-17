@@ -28,7 +28,7 @@ struct ArtifactInfo {
 
 pub fn run(cli: &Cli) -> Result<()> {
     let repo = GitRepository::discover(".").context("failed to inspect git repository")?;
-    let config = Config::load(&cli.config)?;
+    let config = Config::load(&cli.config_path())?;
 
     let sp = progress::spinner("Analyzing commits…");
     let analysis = analysis::analyze(&repo, &config);
@@ -43,8 +43,8 @@ pub fn run(cli: &Cli) -> Result<()> {
         .context("nothing to release — no version bump detected")?;
     let snapshot_version = format!("{}.dev1+snapshot", next_version.base());
 
-    let snapshot_dir = Path::new(".pyrls/snapshot");
-    fs::create_dir_all(snapshot_dir).context("failed to create .pyrls/snapshot")?;
+    let snapshot_dir = Path::new(".relx/snapshot");
+    fs::create_dir_all(snapshot_dir).context("failed to create .relx/snapshot")?;
 
     // Generate changelog entry
     let emoji = &config.changelog.first_contribution_emoji;
@@ -87,7 +87,7 @@ pub fn run(cli: &Cli) -> Result<()> {
     println!("{}", style("Snapshot complete").green().bold());
     println!();
     println!(" Version: {}", style(&snapshot_version).cyan());
-    println!(" Output:  .pyrls/snapshot/");
+    println!(" Output:  .relx/snapshot/");
     println!("   CHANGELOG_ENTRY.md");
     println!("   RELEASE_PR_BODY.md");
     println!("   manifest.json");

@@ -15,8 +15,8 @@ use crate::{
 };
 
 pub fn run(cli: &Cli) -> Result<()> {
-    if cli.config.exists() {
-        bail!("config already exists at {}", cli.config.display());
+    if let Some(path) = cli.config_path_for_init_conflict() {
+        bail!("config already exists at {}", path.display());
     }
 
     let repo = GitRepository::discover(".").ok();

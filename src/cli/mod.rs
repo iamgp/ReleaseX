@@ -12,14 +12,17 @@ use std::path::PathBuf;
 use anyhow::Result;
 use clap::{Args, Parser, Subcommand};
 
+pub const DEFAULT_CONFIG: &str = "relx.toml";
+pub const LEGACY_CONFIG: &str = "pyrls.toml";
+
 #[derive(Debug, Parser)]
 #[command(
-    name = "pyrls",
+    name = "relx",
     version,
-    about = "Automated Python release tooling for Git repositories"
+    about = "Automated release tooling for Python, Rust, and Go repositories"
 )]
 pub struct Cli {
-    #[arg(long, global = true, value_name = "PATH", default_value = "pyrls.toml")]
+    #[arg(long, global = true, value_name = "PATH", default_value = DEFAULT_CONFIG)]
     pub config: PathBuf,
     #[arg(long, global = true)]
     pub dry_run: bool,
@@ -104,6 +107,38 @@ pub enum PreReleaseKind {
     Dev,
 }
 
+impl Cli {
+    pub fn config_path(&self) -> PathBuf {
+        if self.config.exists() {
+            return self.config.clone();
+        }
+
+        if self.config == PathBuf::from(DEFAULT_CONFIG) {
+            let legacy = PathBuf::from(LEGACY_CONFIG);
+            if legacy.exists() {
+                return legacy;
+            }
+        }
+
+        self.config.clone()
+    }
+
+    pub fn config_path_for_init_conflict(&self) -> Option<PathBuf> {
+        if self.config.exists() {
+            return Some(self.config.clone());
+        }
+
+        if self.config == PathBuf::from(DEFAULT_CONFIG) {
+            let legacy = PathBuf::from(LEGACY_CONFIG);
+            if legacy.exists() {
+                return Some(legacy);
+            }
+        }
+
+        None
+    }
+}
+
 pub fn run() -> Result<()> {
     let cli = Cli::parse();
 
@@ -112,8 +147,8 @@ pub fn run() -> Result<()> {
     }
 
     if cli.verbose {
-        unsafe { std::env::set_var("PYRLS_VERBOSE", "1") };
-        eprintln!("[pyrls] verbose mode enabled");
+        unsafe { std::env::set_var("RELX_VERBOSE", "1") };
+        eprintln!("[relx] verbose mode enabled");
     }
 
     match &cli.command {

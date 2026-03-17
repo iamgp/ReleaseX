@@ -122,7 +122,7 @@ pub fn run(cli: &Cli, command: &ReleaseCommand) -> Result<()> {
     }
 
     let repo = GitRepository::discover(".").context("failed to inspect git repository")?;
-    let config = Config::load(&cli.config)?;
+    let config = Config::load(&cli.config_path())?;
 
     let mut analysis = if cli.dry_run {
         analysis::analyze(&repo, &config)?

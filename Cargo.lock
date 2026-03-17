@@ -899,25 +899,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "pyrls"
-version = "0.3.0"
-dependencies = [
- "anyhow",
- "clap",
- "console",
- "git2",
- "indicatif",
- "mockito",
- "openssl",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror",
- "toml",
- "ureq",
-]
-
-[[package]]
 name = "quote"
 version = "1.0.45"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -998,6 +979,25 @@ name = "regex-syntax"
 version = "0.8.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dc897dd8d9e8bd1ed8cdad82b5966c3e0ecae09fb1907d58efaa013543185d0a"
+
+[[package]]
+name = "relx"
+version = "0.3.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "console",
+ "git2",
+ "indicatif",
+ "mockito",
+ "openssl",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "toml",
+ "ureq",
+]
 
 [[package]]
 name = "ring"
