@@ -17,7 +17,7 @@ Full documentation lives under [`docs/`](./docs/README.md).
 - **Changelog generation** — auto-generates `CHANGELOG.md` in [Keep a Changelog](https://keepachangelog.com/) format
 - **Release PRs** — opens and maintains a PR that accumulates changes; release happens when *you* merge it
 - **GitHub Releases** — creates git tags and GitHub Releases with changelog notes on PR merge
-- **PyPI publishing** — optional integration with `uv publish` or `twine upload`, including OIDC Trusted Publisher support
+- **Ecosystem-aware publishing** — Python via `uv` or `twine`, Rust via `cargo publish`, with Go packaging still evolving
 - **Monorepo support** — independent versioning and release PRs for multiple packages in one repo
 - **Single binary** — written in Rust, no runtime dependencies
 
@@ -116,7 +116,7 @@ sections.docs = false                   # excluded from changelog
 # ── Publishing (opt-in) ─────────────────────────────────────────
 [publish]
 enabled = false                         # publishing is never on by default
-provider = "uv"                         # "uv" or "twine"
+provider = "uv"                         # "uv", "twine", or "cargo"
 repository = "pypi"                     # repository name or custom URL
 # repository_url = "https://..."       # optional: explicit index URL
 dist_dir = "dist"                       # directory containing built distributions

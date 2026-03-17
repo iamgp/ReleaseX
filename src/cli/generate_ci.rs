@@ -122,8 +122,6 @@ fn generate_github_workflow(
         yaml.push_str("    steps:\n");
         yaml.push_str("      - uses: actions/checkout@v4\n");
         yaml.push('\n');
-        yaml.push_str("      - uses: astral-sh/setup-uv@v5\n");
-        yaml.push('\n');
         if active_ecosystem == Ecosystem::Rust {
             yaml.push_str("      - uses: dtolnay/rust-toolchain@stable\n");
             yaml.push('\n');
@@ -135,11 +133,15 @@ fn generate_github_workflow(
             yaml.push('\n');
             yaml.push_str(&format!("      - run: {}\n", build_cmd));
         } else if is_maturin {
+            yaml.push_str("      - uses: astral-sh/setup-uv@v5\n");
+            yaml.push('\n');
             yaml.push_str("      - uses: PyO3/maturin-action@v1\n");
             yaml.push_str("        with:\n");
             yaml.push_str("          command: build\n");
             yaml.push_str("          args: --release\n");
         } else {
+            yaml.push_str("      - uses: astral-sh/setup-uv@v5\n");
+            yaml.push('\n');
             yaml.push_str(&format!("      - run: {}\n", build_cmd));
         }
         yaml.push('\n');
@@ -199,4 +201,58 @@ fn render_diff(existing: &str, generated: &str) -> String {
         output.push('\n');
     }
     output
+}
+
+#[cfg(test)]
+mod tests {
+    use super::generate_github_workflow;
+    use crate::config::{CiConfig, Config, Ecosystem, GitHubConfig, PublishConfig, ReleaseConfig};
+
+    fn base_config() -> Config {
+        Config {
+            project: Default::default(),
+            release: ReleaseConfig {
+                branch: "main".to_string(),
+                ..Default::default()
+            },
+            versioning: Default::default(),
+            monorepo: Default::default(),
+            version_files: Vec::new(),
+            changelog: Default::default(),
+            publish: PublishConfig {
+                enabled: true,
+                provider: "uv".to_string(),
+                repository: "pypi".to_string(),
+                ..Default::default()
+            },
+            github: GitHubConfig::default(),
+            workspace: Default::default(),
+            ci: CiConfig::default(),
+            channels: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn python_workflow_uses_uv_setup() {
+        let yaml = generate_github_workflow(&base_config(), Ecosystem::Python, None);
+        assert!(yaml.contains("astral-sh/setup-uv@v5"), "{yaml}");
+        assert!(yaml.contains("run: uv build"), "{yaml}");
+    }
+
+    #[test]
+    fn rust_workflow_uses_rust_toolchain_without_uv() {
+        let yaml = generate_github_workflow(&base_config(), Ecosystem::Rust, None);
+        assert!(yaml.contains("dtolnay/rust-toolchain@stable"), "{yaml}");
+        assert!(yaml.contains("run: cargo build --locked"), "{yaml}");
+        assert!(!yaml.contains("astral-sh/setup-uv@v5"), "{yaml}");
+    }
+
+    #[test]
+    fn go_workflow_uses_go_toolchain_without_uv() {
+        let yaml = generate_github_workflow(&base_config(), Ecosystem::Go, None);
+        assert!(yaml.contains("actions/setup-go@v5"), "{yaml}");
+        assert!(yaml.contains("go-version-file: go.mod"), "{yaml}");
+        assert!(yaml.contains("run: go build ./..."), "{yaml}");
+        assert!(!yaml.contains("astral-sh/setup-uv@v5"), "{yaml}");
+    }
 }

@@ -1,6 +1,10 @@
 # Publishing
 
-`relx` can publish artifacts with either `uv` or `twine`.
+`relx` can publish using ecosystem-aware providers:
+
+- Python: `uv` or `twine`
+- Rust: `cargo`
+- Go: no first-class publish provider yet
 
 ## Enable publishing
 
@@ -35,6 +39,18 @@ username_env = "PYPI_USERNAME"
 password_env = "PYPI_PASSWORD"
 ```
 
+### `cargo`
+
+```toml
+[project]
+ecosystem = "rust"
+
+[publish]
+enabled = true
+provider = "cargo"
+repository = "crates-io"
+```
+
 ## TestPyPI or custom repositories
 
 ```toml
@@ -64,12 +80,21 @@ Requirements:
 
 ## Build artifacts
 
-`relx release publish` expects built artifacts to already exist under `dist_dir`.
+For Python providers, `relx release publish` expects built artifacts to already exist under `dist_dir`.
+
+For Rust, `relx release publish` runs `cargo publish --locked` and does not require a `dist/` directory.
 
 Typical CI sequence:
 
 ```bash
 uv build
+relx release publish
+```
+
+Rust example:
+
+```bash
+cargo build --locked
 relx release publish
 ```
 
@@ -96,5 +121,5 @@ This prints:
 - provider tool availability
 - build success
 - existing tag conflicts
-- existing PyPI version conflicts
-- OIDC environment readiness
+- existing registry version conflicts where supported
+- OIDC environment readiness for Python trusted publishing

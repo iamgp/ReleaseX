@@ -17,11 +17,11 @@ relx generate-ci --dry-run
 `relx` reads:
 
 - `relx.toml`
-- `pyproject.toml`
+- ecosystem manifests such as `pyproject.toml`, `Cargo.toml`, or `go.mod`
 - publishing settings
 - monorepo settings
 
-It chooses a build step based on the detected backend and includes a publish job when publishing is enabled.
+It chooses setup and build steps based on the detected ecosystem and includes a publish job when publishing is enabled.
 
 ## Typical GitHub Actions workflow
 
@@ -64,6 +64,14 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 ```
+
+## Ecosystem-specific setup
+
+`relx generate-ci` currently emits:
+
+- Python: `astral-sh/setup-uv@v5` plus `uv build`, or `maturin-action` for maturin backends
+- Rust: `dtolnay/rust-toolchain@stable` plus `cargo build --locked`
+- Go: `actions/setup-go@v5` plus `go build ./...`
 
 ## Required GitHub permissions
 
