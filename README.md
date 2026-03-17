@@ -17,7 +17,7 @@ Full documentation lives under [`docs/`](./docs/README.md).
 - **Changelog generation** — auto-generates `CHANGELOG.md` in [Keep a Changelog](https://keepachangelog.com/) format
 - **Release PRs** — opens and maintains a PR that accumulates changes; release happens when *you* merge it
 - **GitHub Releases** — creates git tags and GitHub Releases with changelog notes on PR merge
-- **Ecosystem-aware publishing** — Python via `uv` or `twine`, Rust via `cargo publish`, with Go packaging still evolving
+- **Ecosystem-aware publishing** — Python via `uv` or `twine`, Rust via `cargo publish`, and Go via `goreleaser`
 - **Monorepo support** — independent versioning and release PRs for multiple packages in one repo
 - **Single binary** — written in Rust, no runtime dependencies
 
@@ -116,7 +116,7 @@ sections.docs = false                   # excluded from changelog
 # ── Publishing (opt-in) ─────────────────────────────────────────
 [publish]
 enabled = false                         # publishing is never on by default
-provider = "uv"                         # "uv", "twine", or "cargo"
+provider = "uv"                         # "uv", "twine", "cargo", or "goreleaser"
 repository = "pypi"                     # repository name or custom URL
 # repository_url = "https://..."       # optional: explicit index URL
 dist_dir = "dist"                       # directory containing built distributions
@@ -202,7 +202,7 @@ relx release tag --dry-run
 
 #### `relx release publish`
 
-Publish distributions to PyPI (or a custom index) using the configured provider (`uv` or `twine`). Requires `[publish] enabled = true` in config.
+Publish artifacts using the configured provider. Python uses `uv` or `twine`, Rust uses `cargo`, and Go uses `goreleaser`. Requires `[publish] enabled = true` in config.
 
 ```bash
 relx release publish

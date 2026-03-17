@@ -98,11 +98,11 @@ Example output:
 ```text
 relx workspace
 
-Workspace root: go.mod
+Workspace root: go.work
 Discovery: go workspace (go.work use)
 Members:
   services/api (api 0.9.0)
-  services/worker (worker 1.1.0)
+  services/worker (worker 1.1.0) — depends on api
 ```
 
 ## Package selection
@@ -124,6 +124,12 @@ cascade_bumps = true
 ```
 
 If `cli` depends on `core` and `core` changes, `cli` can receive a patch bump even if no files in `cli` changed directly.
+
+This now works for:
+
+- Python workspaces when package dependencies can be resolved from `pyproject.toml`
+- Cargo workspaces using crate dependency tables
+- Go workspaces using `require` entries from member `go.mod` files
 
 ## Version mismatch warnings
 

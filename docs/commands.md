@@ -70,7 +70,7 @@ Exit codes:
 
 ## `relx workspace`
 
-Print the detected monorepo or `uv` workspace structure.
+Print the detected monorepo or workspace structure.
 
 ```bash
 relx workspace
