@@ -15,7 +15,7 @@ This is the fastest way to catch:
 - wrong branch
 - unreachable remotes
 - missing build tools
-- existing PyPI version conflicts
+- existing registry version conflicts
 
 ## Common problems
 
@@ -86,8 +86,8 @@ Check:
 
 - artifacts exist in `dist_dir`
 - the configured repository and repository URL are correct
-- PyPI credentials are present
-- trusted publishing is correctly configured on PyPI
+- the registry credentials required by the selected provider are present
+- trusted publishing is correctly configured when using Python package uploads
 
 ## Workflow generation refuses overwrite
 
@@ -103,6 +103,6 @@ Review the output or diff, then replace the workflow manually.
 
 - keep release automation running only on the intended release branches
 - use `relx healthcheck` before enabling auto-publish
-- prefer OIDC trusted publishing over static PyPI tokens
+- prefer OIDC trusted publishing over static PyPI tokens when publishing Python packages
 - keep `relx.toml` small and explicit
 - use `--dry-run` before changing release configuration

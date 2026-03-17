@@ -34,7 +34,7 @@ version_range = ">=1.0.0,<2.0.0"
 - `relx release pr --channel ...`
 - `relx release tag --channel ...`
 - release PR base branch resolution
-- prerelease numbering via the PyPI project history when available
+- prerelease numbering via the active ecosystem registry when available
 - simple version-range guards
 
 ## Examples
@@ -87,13 +87,17 @@ This prevents a `2.0.0` release from being cut from the maintenance line.
 
 ## Pre-release numbering
 
-If PyPI is reachable and a project name can be resolved, `relx` tries to increment prerelease numbers based on existing releases:
+If the active package registry is reachable and a package name can be resolved, `relx` tries to increment prerelease numbers based on existing releases:
 
 - `1.2.3b1`
 - `1.2.3b2`
 - `1.2.3b3`
 
-If PyPI cannot be queried, `relx` falls back to local version bumping.
+- Python uses PyPI history.
+- Rust uses crates.io history.
+- Go currently falls back to local version bumping.
+
+If the registry cannot be queried, `relx` falls back to local version bumping.
 
 ## Manual pre-release flags
 

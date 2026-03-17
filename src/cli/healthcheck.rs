@@ -90,12 +90,20 @@ impl HealthcheckReport {
     }
 }
 
-const CATEGORIES: &[&str] = &["config", "git", "github", "build", "pypi"];
+const CATEGORIES: &[&str] = &["config", "git", "github", "build", "registry"];
+
+fn normalize_category(category: &str) -> &str {
+    match category {
+        "pypi" => "registry",
+        other => other,
+    }
+}
 
 pub fn run(cli: &Cli, args: &HealthcheckArgs) -> Result<()> {
     if let Some(only) = &args.only {
         let lower = only.to_lowercase();
-        if !CATEGORIES.contains(&lower.as_str()) {
+        let normalized = normalize_category(&lower);
+        if !CATEGORIES.contains(&normalized) {
             anyhow::bail!(
                 "unknown category `{only}`. Valid categories: {}",
                 CATEGORIES.join(", ")
@@ -103,7 +111,10 @@ pub fn run(cli: &Cli, args: &HealthcheckArgs) -> Result<()> {
         }
     }
 
-    let filter = args.only.as_deref().map(|s| s.to_lowercase());
+    let filter = args
+        .only
+        .as_deref()
+        .map(|s| normalize_category(&s.to_lowercase()).to_string());
     let should_run = |cat: &str| filter.as_deref().is_none() || filter.as_deref() == Some(cat);
 
     let config = Config::load(&cli.config_path()).ok();
@@ -127,8 +138,8 @@ pub fn run(cli: &Cli, args: &HealthcheckArgs) -> Result<()> {
         report.add_category("Build", check_build(&config));
     }
 
-    if should_run("pypi") {
-        report.add_category("PyPI", check_pypi(&config, &repo));
+    if should_run("registry") {
+        report.add_category("Registry", check_registry(&config, &repo));
     }
 
     report.print();
@@ -435,7 +446,7 @@ fn check_build(config: &Option<Config>) -> Vec<CheckResult> {
     checks
 }
 
-fn check_pypi(config: &Option<Config>, repo: &Option<GitRepository>) -> Vec<CheckResult> {
+fn check_registry(config: &Option<Config>, repo: &Option<GitRepository>) -> Vec<CheckResult> {
     let mut checks = Vec::new();
 
     let config = match config {
@@ -446,14 +457,14 @@ fn check_pypi(config: &Option<Config>, repo: &Option<GitRepository>) -> Vec<Chec
 
     if ecosystem == Ecosystem::Go {
         checks.push(CheckResult::Pass(
-            "go ecosystem detected, skipping package registry checks".to_string(),
+            "go ecosystem detected, skipping registry version checks".to_string(),
         ));
         return checks;
     }
 
     if !config.publish.enabled {
         checks.push(CheckResult::Pass(
-            "Publishing is disabled, skipping PyPI checks".to_string(),
+            "Publishing is disabled, skipping registry checks".to_string(),
         ));
         return checks;
     }
@@ -492,7 +503,8 @@ fn check_pypi(config: &Option<Config>, repo: &Option<GitRepository>) -> Vec<Chec
                                 version
                             ))),
                             Err(_) => checks.push(CheckResult::Warn(
-                                "Could not query PyPI for current version".to_string(),
+                                "Could not query the Python package registry for the current version"
+                                    .to_string(),
                             )),
                         },
                         Ecosystem::Rust => match cratesio::has_version(&project_name, &version) {
@@ -505,7 +517,7 @@ fn check_pypi(config: &Option<Config>, repo: &Option<GitRepository>) -> Vec<Chec
                                 version
                             ))),
                             Err(_) => checks.push(CheckResult::Warn(
-                                "Could not query crates.io for current version".to_string(),
+                                "Could not query crates.io for the current version".to_string(),
                             )),
                         },
                         Ecosystem::Go => {}
@@ -535,11 +547,11 @@ fn check_pypi(config: &Option<Config>, repo: &Option<GitRepository>) -> Vec<Chec
 
             if has_credentials {
                 checks.push(CheckResult::Pass(
-                    "PyPI credentials or OIDC configured".to_string(),
+                    "PyPI credentials or OIDC are configured".to_string(),
                 ));
             } else {
                 checks.push(CheckResult::Warn(
-                    "No PyPI credentials or OIDC configured".to_string(),
+                    "No PyPI credentials or OIDC are configured".to_string(),
                 ));
             }
 

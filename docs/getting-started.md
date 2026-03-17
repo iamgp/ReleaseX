@@ -28,9 +28,9 @@ cargo install --path .
 
 Optional features add more requirements:
 
-- `uv` or `twine` for publishing
+- `uv`, `twine`, `cargo`, or `goreleaser` depending on your ecosystem and publish setup
 - `GITHUB_TOKEN` for GitHub API access
-- PyPI credentials or OIDC trusted publishing for package uploads
+- registry credentials or trusted publishing support for package uploads
 
 ## Initialize configuration
 

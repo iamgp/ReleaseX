@@ -3,6 +3,7 @@ use anyhow::Result;
 use crate::{
     analysis::ReleaseAnalysis,
     config::{ChannelConfig, Config},
+    cratesio, ecosystem,
     git::GitRepository,
     pypi,
     version::Version,
@@ -54,13 +55,7 @@ pub fn apply_channel_to_analysis(
             .next_version
             .clone()
             .unwrap_or_else(|| analysis.current_version.bump_patch());
-        let next = match pypi::project_name(repo.path(), ".") {
-            Some(project_name) => match pypi::next_prerelease_version(&project_name, &base, kind) {
-                Ok(version) => version,
-                Err(_) => base.bump_pre(kind)?,
-            },
-            None => base.bump_pre(kind)?,
-        };
+        let next = next_prerelease_for_package(repo, ".", &base, kind)?;
         analysis.next_version = Some(next);
 
         for package in &mut analysis.package_plan.packages {
@@ -71,14 +66,12 @@ pub fn apply_channel_to_analysis(
                 .next_version
                 .clone()
                 .unwrap_or_else(|| package.current_version.bump_patch());
-            let pkg_name = pypi::project_name(repo.path(), &package.root);
-            package.next_version = Some(match pkg_name {
-                Some(name) => match pypi::next_prerelease_version(&name, &pkg_base, kind) {
-                    Ok(version) => version,
-                    Err(_) => pkg_base.bump_pre(kind)?,
-                },
-                None => pkg_base.bump_pre(kind)?,
-            });
+            package.next_version = Some(next_prerelease_for_package(
+                repo,
+                &package.root,
+                &pkg_base,
+                kind,
+            )?);
         }
     }
 
@@ -90,6 +83,42 @@ pub fn apply_channel_to_analysis(
         prerelease: channel.prerelease.clone(),
         version_range: channel.version_range.clone(),
     }))
+}
+
+fn next_prerelease_for_package(
+    repo: &GitRepository,
+    package_root: &str,
+    base: &Version,
+    kind: &str,
+) -> Result<Version> {
+    let ecosystem = ecosystem::detect(repo.path(), None);
+    match ecosystem {
+        crate::config::Ecosystem::Python => match pypi::project_name(repo.path(), package_root) {
+            Some(project_name) => match pypi::next_prerelease_version(&project_name, base, kind) {
+                Ok(version) => Ok(version),
+                Err(_) => base.bump_pre(kind),
+            },
+            None => base.bump_pre(kind),
+        },
+        crate::config::Ecosystem::Rust => {
+            let crate_name = crate::analysis::detect_project_name(repo.path(), package_root);
+            match crate_name {
+                Some(name) => match cratesio::latest_published_version(&name) {
+                    Ok(Some(version))
+                        if version.major == base.major
+                            && version.minor == base.minor
+                            && version.patch == base.patch
+                            && matches!(version.suffix, Some(crate::version::Suffix::Pre(_))) =>
+                    {
+                        version.bump_pre(kind)
+                    }
+                    _ => base.bump_pre(kind),
+                },
+                None => base.bump_pre(kind),
+            }
+        }
+        crate::config::Ecosystem::Go => base.bump_pre(kind),
+    }
 }
 
 pub fn version_in_range(version: &Version, range: &str) -> bool {

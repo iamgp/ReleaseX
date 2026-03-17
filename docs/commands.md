@@ -45,7 +45,7 @@ relx status --channel
 - unreleased commits
 - package selection in monorepos
 - release PR status when GitHub access is available
-- latest published PyPI version when project metadata can be resolved
+- latest published registry version when project metadata can be resolved
 
 ## `relx healthcheck`
 
@@ -57,8 +57,10 @@ relx healthcheck --only config
 relx healthcheck --only git
 relx healthcheck --only github
 relx healthcheck --only build
-relx healthcheck --only pypi
+relx healthcheck --only registry
 ```
+
+`--only pypi` is still accepted as an alias for Python-oriented workflows, but `registry` is the preferred category name.
 
 Exit codes:
 
