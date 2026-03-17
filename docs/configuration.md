@@ -139,13 +139,19 @@ Use `[changelog.sections]` to map commit types to section names. Set a type to `
 ## `[publish]`
 
 - `enabled`: enables `relx release publish`
-- `provider`: `uv` or `twine`
+- `provider`: `uv`, `twine`, or `cargo`
 - `repository`: package repository name, usually `pypi`
 - `repository_url`: explicit upload URL for custom indexes or TestPyPI
 - `dist_dir`: artifact directory
 - `trusted_publishing`: indicate trusted publishing is intended
 - `oidc`: use GitHub Actions OIDC token exchange for PyPI
 - `token_env`, `username_env`, `password_env`: credentials to source from environment variables
+
+Examples:
+
+- Python with `uv`: `repository = "pypi"`
+- Python with `twine`: `repository_url = "https://test.pypi.org/legacy/"`
+- Rust with `cargo`: `repository = "crates-io"` or a named Cargo registry
 
 ## `[github]`
 
