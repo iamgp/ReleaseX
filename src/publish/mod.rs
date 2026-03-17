@@ -147,7 +147,6 @@ fn build_plan_inner(
         bail!("publish flow is disabled; set [publish].enabled = true to use release publish");
     }
 
-    let dist_files = collect_dist_files(repo_root, &publish.dist_dir)?;
     let provider = publish.provider.trim();
     let repository = publish.repository.trim();
     let repository_url = publish
@@ -159,6 +158,7 @@ fn build_plan_inner(
 
     let mut command = Vec::new();
     let mut env_pairs = Vec::new();
+    let mut dist_files = Vec::new();
 
     let use_oidc = publish.oidc && !dry_run && publish.token_env.is_none() && oidc_env_available();
 
@@ -170,6 +170,7 @@ fn build_plan_inner(
 
     match provider {
         "uv" => {
+            dist_files = collect_dist_files(repo_root, &publish.dist_dir)?;
             command.push("uv".into());
             command.push("publish".into());
 
@@ -191,6 +192,7 @@ fn build_plan_inner(
             command.extend(dist_files.iter().map(|path| path.as_os_str().to_owned()));
         }
         "twine" => {
+            dist_files = collect_dist_files(repo_root, &publish.dist_dir)?;
             command.push("twine".into());
             command.push("upload".into());
             command.push("--non-interactive".into());
@@ -210,6 +212,16 @@ fn build_plan_inner(
                 append_auth_envs(publish, &mut env_pairs, "TWINE_")?;
             }
             command.extend(dist_files.iter().map(|path| path.as_os_str().to_owned()));
+        }
+        "cargo" => {
+            command.push("cargo".into());
+            command.push("publish".into());
+            command.push("--locked".into());
+
+            if repository != "crates-io" {
+                command.push("--registry".into());
+                command.push(repository.into());
+            }
         }
         _ => bail!("unsupported publish provider `{provider}`"),
     }

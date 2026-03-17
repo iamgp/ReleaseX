@@ -89,6 +89,13 @@ fn build_config(repo: Option<&GitRepository>, repo_root: &Path) -> InitPlan {
         github_config.repo = Some(repo_ref.name);
     }
 
+    let mut publish = crate::config::PublishConfig::default();
+    if detected_ecosystem == Ecosystem::Rust {
+        publish.provider = "cargo".to_string();
+        publish.repository = "crates-io".to_string();
+        publish.dist_dir = ".".to_string();
+    }
+
     InitPlan {
         config: Config {
             project: crate::config::ProjectConfig {
@@ -105,7 +112,7 @@ fn build_config(repo: Option<&GitRepository>, repo_root: &Path) -> InitPlan {
             monorepo: Default::default(),
             version_files,
             changelog: default_changelog_config(),
-            publish: Default::default(),
+            publish,
             github: github_config,
             workspace: Default::default(),
             ci: Default::default(),
