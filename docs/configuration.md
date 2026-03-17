@@ -1,6 +1,6 @@
 # Configuration Reference
 
-`pyrls` is configured with `pyrls.toml` at the repository root.
+`relx` is configured with `relx.toml` at the repository root.
 
 ## Full example
 
@@ -54,7 +54,7 @@ oidc = false
 # repo = "project"
 api_base = "https://api.github.com"
 token_env = "GITHUB_TOKEN"
-release_branch_prefix = "pyrls/release"
+release_branch_prefix = "relx/release"
 pending_label = "autorelease: pending"
 tagged_label = "autorelease: tagged"
 
@@ -129,7 +129,7 @@ Use `[changelog.sections]` to map commit types to section names. Set a type to `
 
 ## `[publish]`
 
-- `enabled`: enables `pyrls release publish`
+- `enabled`: enables `relx release publish`
 - `provider`: `uv` or `twine`
 - `repository`: package repository name, usually `pypi`
 - `repository_url`: explicit upload URL for custom indexes or TestPyPI
@@ -144,7 +144,7 @@ Use `[changelog.sections]` to map commit types to section names. Set a type to `
 - `api_base`: use this for GitHub Enterprise
 - `token_env`: environment variable holding the GitHub API token
 - `release_branch_prefix`: prefix for generated release branches
-- `pending_label`, `tagged_label`: labels managed by `pyrls`
+- `pending_label`, `tagged_label`: labels managed by `relx`
 
 ## `[monorepo]`
 
@@ -152,7 +152,7 @@ Use `[changelog.sections]` to map commit types to section names. Set a type to `
 - `packages`: explicit package roots
 - `release_mode`: `unified` or `per_package`
 
-If `packages` is empty and a `uv` workspace is present, `pyrls` can auto-discover members.
+If `packages` is empty and a `uv` workspace is present, `relx` can auto-discover members.
 
 ## `[workspace]`
 

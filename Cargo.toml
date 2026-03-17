@@ -32,18 +32,20 @@ categories = [
     "command-line-utilities",
     "development-tools",
 ]
-description = "A single-binary release automation tool for Python projects"
+description = "A single-binary release automation tool for Python, Rust, and Go projects"
 edition = "2024"
-homepage = "https://github.com/iamgp/pyrls"
+homepage = "https://github.com/iamgp/ReleaseX"
 keywords = [
     "python",
+    "rust",
+    "go",
     "release",
     "changelog",
     "pypi",
     "conventional-commits",
 ]
 license = "MIT"
-name = "pyrls"
+name = "relx"
 readme = "README.md"
-repository = "https://github.com/iamgp/pyrls"
+repository = "https://github.com/iamgp/ReleaseX"
 version = "0.3.0"

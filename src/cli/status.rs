@@ -15,7 +15,8 @@ use crate::{
 
 pub fn run(cli: &Cli, args: &StatusArgs) -> Result<()> {
     let repo = GitRepository::discover(".").context("failed to inspect git repository")?;
-    let config = Config::load(&cli.config)?;
+    let config_path = cli.config_path();
+    let config = Config::load(&config_path)?;
 
     let mut analysis = if cli.dry_run {
         match &args.since {
@@ -80,7 +81,7 @@ fn print_channel(branch: &str, channel: Option<&channels::ResolvedChannel>) {
 fn print_legacy(cli: &Cli, repo: &GitRepository, analysis: &ReleaseAnalysis) -> Result<()> {
     println!("Repository: {}", repo.path().display());
     println!("Branch: {}", repo.current_branch()?);
-    println!("Config: {}", cli.config.display());
+    println!("Config: {}", cli.config_path().display());
     println!(
         "Last tag: {}",
         repo.latest_tag()?.unwrap_or_else(|| "none".to_string())
@@ -236,7 +237,7 @@ fn print_dashboard(
     branch: &str,
 ) -> Result<()> {
     println!();
-    println!("{}", style("pyrls status").bold());
+    println!("{}", style("relx status").bold());
     println!();
 
     let last_tag = repo.latest_tag().unwrap_or(None);

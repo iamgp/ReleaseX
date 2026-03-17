@@ -1,6 +1,6 @@
 # Publishing
 
-`pyrls` can publish artifacts with either `uv` or `twine`.
+`relx` can publish artifacts with either `uv` or `twine`.
 
 ## Enable publishing
 
@@ -64,13 +64,13 @@ Requirements:
 
 ## Build artifacts
 
-`pyrls release publish` expects built artifacts to already exist under `dist_dir`.
+`relx release publish` expects built artifacts to already exist under `dist_dir`.
 
 Typical CI sequence:
 
 ```bash
 uv build
-pyrls release publish
+relx release publish
 ```
 
 ## Dry run
@@ -78,7 +78,7 @@ pyrls release publish
 Use:
 
 ```bash
-pyrls release publish --dry-run
+relx release publish --dry-run
 ```
 
 This prints:
@@ -91,7 +91,7 @@ This prints:
 
 ## Safety checks
 
-`pyrls healthcheck` can validate publish prerequisites before release:
+`relx healthcheck` can validate publish prerequisites before release:
 
 - provider tool availability
 - build success

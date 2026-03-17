@@ -3,7 +3,7 @@ use anyhow::Result;
 use crate::{cli::Cli, config::Config};
 
 pub fn run(cli: &Cli) -> Result<()> {
-    let config = Config::load(&cli.config)?;
+    let config = Config::load(&cli.config_path())?;
     config.validate()?;
 
     println!(

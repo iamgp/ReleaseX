@@ -8,10 +8,10 @@ fn release_pr_dry_run_reports_github_mutations() {
     let repo_path = repo_dir.path();
 
     run(repo_path, &["git", "init", "-b", "main"]);
-    run(repo_path, &["git", "config", "user.name", "Pyrls Test"]);
+    run(repo_path, &["git", "config", "user.name", "Relx Test"]);
     run(
         repo_path,
-        &["git", "config", "user.email", "pyrls@example.com"],
+        &["git", "config", "user.email", "relx@example.com"],
     );
     run(
         repo_path,
@@ -30,7 +30,7 @@ fn release_pr_dry_run_reports_github_mutations() {
     )
     .expect("write pyproject");
     fs::write(
-        repo_path.join("pyrls.toml"),
+        repo_path.join("relx.toml"),
         r#"[release]
 branch = "main"
 tag_prefix = "v"
@@ -59,11 +59,11 @@ fix = "Fixed"
         &["git", "commit", "-m", "feat: add search support"],
     );
 
-    let output = Command::new(env!("CARGO_BIN_EXE_pyrls"))
+    let output = Command::new(env!("CARGO_BIN_EXE_relx"))
         .args(["release", "pr", "--dry-run"])
         .current_dir(repo_path)
         .output()
-        .expect("run pyrls release pr");
+        .expect("run relx release pr");
 
     assert!(
         output.status.success(),
@@ -73,7 +73,7 @@ fix = "Fixed"
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
-        stdout.contains("Would push release branch `pyrls/release/v0.2.0`"),
+        stdout.contains("Would push release branch `relx/release/v0.2.0`"),
         "{stdout}"
     );
     assert!(
@@ -92,10 +92,10 @@ fn release_tag_dry_run_reports_tag_and_release() {
     let repo_path = repo_dir.path();
 
     run(repo_path, &["git", "init", "-b", "main"]);
-    run(repo_path, &["git", "config", "user.name", "Pyrls Test"]);
+    run(repo_path, &["git", "config", "user.name", "Relx Test"]);
     run(
         repo_path,
-        &["git", "config", "user.email", "pyrls@example.com"],
+        &["git", "config", "user.email", "relx@example.com"],
     );
     run(
         repo_path,
@@ -114,7 +114,7 @@ fn release_tag_dry_run_reports_tag_and_release() {
     )
     .expect("write pyproject");
     fs::write(
-        repo_path.join("pyrls.toml"),
+        repo_path.join("relx.toml"),
         r#"[release]
 branch = "main"
 tag_prefix = "v"
@@ -142,11 +142,11 @@ feat = "Added"
         &["git", "commit", "-m", "feat: add search support"],
     );
 
-    let output = Command::new(env!("CARGO_BIN_EXE_pyrls"))
+    let output = Command::new(env!("CARGO_BIN_EXE_relx"))
         .args(["release", "tag", "--dry-run"])
         .current_dir(repo_path)
         .output()
-        .expect("run pyrls release tag");
+        .expect("run relx release tag");
 
     assert!(
         output.status.success(),
@@ -171,10 +171,10 @@ fn release_pr_dry_run_reports_monorepo_package_set() {
     let repo_path = repo_dir.path();
 
     run(repo_path, &["git", "init", "-b", "main"]);
-    run(repo_path, &["git", "config", "user.name", "Pyrls Test"]);
+    run(repo_path, &["git", "config", "user.name", "Relx Test"]);
     run(
         repo_path,
-        &["git", "config", "user.email", "pyrls@example.com"],
+        &["git", "config", "user.email", "relx@example.com"],
     );
     run(
         repo_path,
@@ -210,7 +210,7 @@ fn release_pr_dry_run_reports_monorepo_package_set() {
     )
     .expect("write cli init");
     fs::write(
-        repo_path.join("pyrls.toml"),
+        repo_path.join("relx.toml"),
         r#"[release]
 branch = "main"
 tag_prefix = "v"
@@ -244,11 +244,11 @@ repo = "demo"
         &["git", "commit", "-m", "feat: add core feature"],
     );
 
-    let output = Command::new(env!("CARGO_BIN_EXE_pyrls"))
+    let output = Command::new(env!("CARGO_BIN_EXE_relx"))
         .args(["release", "pr", "--dry-run"])
         .current_dir(repo_path)
         .output()
-        .expect("run pyrls release pr");
+        .expect("run relx release pr");
 
     assert!(
         output.status.success(),

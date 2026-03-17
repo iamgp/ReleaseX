@@ -1,6 +1,6 @@
 # Monorepos and uv Workspaces
 
-`pyrls` supports multi-package repositories in two ways:
+`relx` supports multi-package repositories in two ways:
 
 - explicit `[monorepo]` configuration
 - `uv` workspace auto-discovery
@@ -21,7 +21,7 @@ release_mode = "unified"
 
 ## uv workspace auto-discovery
 
-If the root `pyproject.toml` defines `tool.uv.workspace.members`, `pyrls` can discover packages automatically.
+If the root `pyproject.toml` defines `tool.uv.workspace.members`, `relx` can discover packages automatically.
 
 Example layout:
 
@@ -37,13 +37,13 @@ packages/
 Run:
 
 ```bash
-pyrls workspace
+relx workspace
 ```
 
 Example output:
 
 ```text
-pyrls workspace
+relx workspace
 
 Workspace root: pyproject.toml
 Discovery: uv workspace (tool.uv.workspace.members)
@@ -55,7 +55,7 @@ Members:
 
 ## Package selection
 
-For monorepos, `pyrls`:
+For monorepos, `relx`:
 
 1. inspects commits since the latest tag
 2. maps changed paths to package roots
@@ -75,7 +75,7 @@ If `cli` depends on `core` and `core` changes, `cli` can receive a patch bump ev
 
 ## Version mismatch warnings
 
-`pyrls workspace` warns when workspace members have different versions. This is useful for spotting drift in repos that intend to keep package versions aligned.
+`relx workspace` warns when workspace members have different versions. This is useful for spotting drift in repos that intend to keep package versions aligned.
 
 ## Current limits
 

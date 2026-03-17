@@ -1,5 +1,5 @@
-name: pyrls
-description: Automated release tool for Python projects — version bumps, changelogs, release PRs, and PyPI publishing.
+name: ReleaseX
+description: Automated release tool for Python, Rust, and Go projects — version bumps, changelogs, release PRs, and PyPI publishing.
 author: iamgp
 
 branding:
@@ -36,19 +36,19 @@ runs:
         esac
         echo "target=$target" >> "$GITHUB_OUTPUT"
 
-    - name: Download pyrls
+    - name: Download relx binary
       shell: bash
       run: |
         set -euo pipefail
 
         version='${{ inputs.version }}'
         target='${{ steps.platform.outputs.target }}'
-        repo='${{ github.action_repository || 'iamgp/pyrls' }}'
+        repo='${{ github.action_repository || 'iamgp/ReleaseX' }}'
 
         if [[ "$target" == *windows* ]]; then
-          archive="pyrls-${target}.zip"
+          archive="relx-${target}.zip"
         else
-          archive="pyrls-${target}.tar.gz"
+          archive="relx-${target}.tar.gz"
         fi
 
         if [ "$version" = "latest" ]; then
@@ -67,9 +67,9 @@ runs:
           tar -xzf "$temp_dir/$archive" -C "$temp_dir"
         fi
 
-        chmod +x "$temp_dir/pyrls" 2>/dev/null || true
+        chmod +x "$temp_dir/relx" 2>/dev/null || true
         echo "$temp_dir" >> "$GITHUB_PATH"
 
-    - name: Run pyrls
+    - name: Run relx
       shell: bash
-      run: pyrls ${{ inputs.command }} ${{ inputs.args }}
+      run: relx ${{ inputs.command }} ${{ inputs.args }}

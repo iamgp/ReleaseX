@@ -10,5 +10,5 @@ fn action_exposes_command_input_and_downloads_binary() {
     assert!(action.contains("release tag"), "{action}");
     assert!(action.contains("releases/latest/download"), "{action}");
     assert!(action.contains("github.action_repository"), "{action}");
-    assert!(action.contains("pyrls ${{ inputs.command }}"), "{action}");
+    assert!(action.contains("relx ${{ inputs.command }}"), "{action}");
 }

@@ -375,7 +375,7 @@ fn default_github_token_env() -> String {
 }
 
 fn default_release_branch_prefix() -> String {
-    "pyrls/release".to_string()
+    "relx/release".to_string()
 }
 
 fn default_pending_label() -> String {

@@ -5,10 +5,10 @@
 Build from source:
 
 ```bash
-git clone https://github.com/iamgp/pyrls.git
-cd pyrls
+git clone https://github.com/iamgp/ReleaseX.git
+cd ReleaseX
 cargo build --release
-./target/release/pyrls --version
+./target/release/relx --version
 ```
 
 Or install directly into Cargo's binary path:
@@ -19,7 +19,7 @@ cargo install --path .
 
 ## Repository requirements
 
-`pyrls` expects:
+`relx` expects:
 
 - a Git repository
 - a Python project with a `pyproject.toml`, `setup.cfg`, or `__version__` pattern
@@ -37,10 +37,10 @@ Optional features add more requirements:
 Run:
 
 ```bash
-pyrls init
+relx init
 ```
 
-This creates a starter `pyrls.toml` by detecting:
+This creates a starter `relx.toml` by detecting:
 
 - the default release branch
 - GitHub owner and repository name
@@ -49,7 +49,7 @@ This creates a starter `pyrls.toml` by detecting:
 Preview without writing:
 
 ```bash
-pyrls init --dry-run
+relx init --dry-run
 ```
 
 ## Basic workflow
@@ -64,26 +64,26 @@ git commit -m "fix: handle empty config"
 Inspect the pending release:
 
 ```bash
-pyrls status
-pyrls healthcheck
+relx status
+relx healthcheck
 ```
 
 Open or update the release PR:
 
 ```bash
-pyrls release pr
+relx release pr
 ```
 
 After the PR is merged, tag and release from CI:
 
 ```bash
-pyrls release tag
+relx release tag
 ```
 
 If publishing is enabled:
 
 ```bash
-pyrls release publish
+relx release publish
 ```
 
 ## Local validation
@@ -91,22 +91,22 @@ pyrls release publish
 Use snapshot mode to run the release pipeline locally without pushing tags or publishing:
 
 ```bash
-pyrls release --snapshot
+relx release --snapshot
 ```
 
-This writes output under `.pyrls/snapshot/`, including:
+This writes output under `.relx/snapshot/`, including:
 
 - `CHANGELOG_ENTRY.md`
 - `RELEASE_PR_BODY.md`
 - `manifest.json`
-- built artifacts in `.pyrls/snapshot/dist/`
+- built artifacts in `.relx/snapshot/dist/`
 
 ## First commands to learn
 
 ```bash
-pyrls validate
-pyrls status
-pyrls healthcheck
-pyrls generate-ci --dry-run
-pyrls workspace
+relx validate
+relx status
+relx healthcheck
+relx generate-ci --dry-run
+relx workspace
 ```
