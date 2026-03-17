@@ -185,6 +185,112 @@ release_mode = "unified"
     );
 }
 
+#[test]
+fn status_reports_cargo_workspace_with_cascade_bumps() {
+    let repo_dir = tempdir().expect("tempdir");
+    let repo_path = repo_dir.path();
+
+    run(repo_path, &["git", "init", "-b", "main"]);
+    run(repo_path, &["git", "config", "user.name", "Relx Test"]);
+    run(
+        repo_path,
+        &["git", "config", "user.email", "relx@example.com"],
+    );
+
+    fs::create_dir_all(repo_path.join("crates/core/src")).expect("create core crate");
+    fs::create_dir_all(repo_path.join("crates/cli/src")).expect("create cli crate");
+    fs::write(
+        repo_path.join("Cargo.toml"),
+        "[workspace]\nmembers = [\"crates/*\"]\nresolver = \"2\"\n",
+    )
+    .expect("write workspace Cargo.toml");
+    fs::write(
+        repo_path.join("crates/core/Cargo.toml"),
+        "[package]\nname = \"core\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
+    )
+    .expect("write core Cargo.toml");
+    fs::write(
+        repo_path.join("crates/cli/Cargo.toml"),
+        "[package]\nname = \"cli\"\nversion = \"0.5.0\"\nedition = \"2024\"\n\n[dependencies]\ncore = { path = \"../core\" }\n",
+    )
+    .expect("write cli Cargo.toml");
+    fs::write(
+        repo_path.join("crates/core/src/lib.rs"),
+        "pub fn core() {}\n",
+    )
+    .expect("write core lib");
+    fs::write(repo_path.join("crates/cli/src/lib.rs"), "pub fn cli() {}\n").expect("write cli lib");
+    fs::write(
+        repo_path.join("relx.toml"),
+        r#"[project]
+ecosystem = "rust"
+
+[release]
+branch = "main"
+tag_prefix = "v"
+
+[versioning]
+initial_version = "0.1.0"
+
+[monorepo]
+enabled = true
+release_mode = "per_package"
+
+[workspace]
+cascade_bumps = true
+"#,
+    )
+    .expect("write config");
+
+    run(repo_path, &["git", "add", "."]);
+    run(
+        repo_path,
+        &["git", "commit", "-m", "chore: initial release"],
+    );
+    run(repo_path, &["git", "tag", "v0.1.0"]);
+
+    fs::write(
+        repo_path.join("crates/core/src/lib.rs"),
+        "pub fn core() {}\npub fn feature() {}\n",
+    )
+    .expect("update core lib");
+    run(repo_path, &["git", "add", "."]);
+    run(
+        repo_path,
+        &["git", "commit", "-m", "feat: add core feature"],
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_relx"))
+        .args(["status", "--dry-run"])
+        .current_dir(repo_path)
+        .output()
+        .expect("run relx status");
+
+    assert!(
+        output.status.success(),
+        "status failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("Package discovery: cargo workspace (workspace.members)"),
+        "{stdout}"
+    );
+    assert!(
+        stdout.contains("core [crates/core] current=0.1.0 next=0.2.0 bump=minor"),
+        "{stdout}"
+    );
+    assert!(
+        stdout.contains("cli [crates/cli] current=0.5.0 next=0.5.1 bump=patch"),
+        "{stdout}"
+    );
+    assert!(
+        stdout.contains("reason=cascade bump: depends on a package with a version bump"),
+        "{stdout}"
+    );
+}
+
 fn run(repo_path: &std::path::Path, args: &[&str]) {
     let status = Command::new(args[0])
         .args(&args[1..])

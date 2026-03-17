@@ -337,11 +337,11 @@ pub fn discover_uv_workspace(repo_root: &Path) -> Option<Vec<String>> {
 }
 
 pub fn extract_dependency_names(repo_root: &Path, package_root: &str) -> Vec<String> {
-    let ecosystem = ecosystem::detect(repo_root, None);
+    let ecosystem = ecosystem::detect(&repo_root.join(package_root), None);
     match ecosystem {
         Ecosystem::Python => extract_python_dependency_names(repo_root, package_root),
         Ecosystem::Rust => extract_rust_dependency_names(repo_root, package_root),
-        Ecosystem::Go => Vec::new(),
+        Ecosystem::Go => extract_go_dependency_names(repo_root, package_root),
     }
 }
 
@@ -482,6 +482,52 @@ fn extract_rust_dependency_names(repo_root: &Path, package_root: &str) -> Vec<St
     deps
 }
 
+fn extract_go_dependency_names(repo_root: &Path, package_root: &str) -> Vec<String> {
+    let go_mod_path = repo_root.join(package_root).join("go.mod");
+    let contents = match fs::read_to_string(go_mod_path) {
+        Ok(c) => c,
+        Err(_) => return Vec::new(),
+    };
+
+    let mut deps = Vec::new();
+    let mut in_require_block = false;
+
+    for line in contents.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with("//") {
+            continue;
+        }
+
+        if let Some(rest) = trimmed.strip_prefix("require ") {
+            let rest = rest.trim();
+            if rest == "(" {
+                in_require_block = true;
+                continue;
+            }
+
+            if let Some(module) = rest.split_whitespace().next() {
+                deps.push(go_module_short_name(module));
+            }
+            continue;
+        }
+
+        if in_require_block {
+            if trimmed == ")" {
+                in_require_block = false;
+                continue;
+            }
+
+            if let Some(module) = trimmed.split_whitespace().next() {
+                deps.push(go_module_short_name(module));
+            }
+        }
+    }
+
+    deps.sort();
+    deps.dedup();
+    deps
+}
+
 pub fn apply_cascade_bumps(
     repo_root: &Path,
     config: &Config,
@@ -590,6 +636,18 @@ fn detect_package_version_files(
     repo_root: &Path,
     package_root: &Path,
 ) -> Result<Vec<VersionFileConfig>> {
+    let ecosystem = ecosystem::detect(package_root, None);
+    match ecosystem {
+        Ecosystem::Python => detect_python_package_version_files(repo_root, package_root),
+        Ecosystem::Rust => detect_rust_package_version_files(repo_root, package_root),
+        Ecosystem::Go => detect_go_package_version_files(repo_root, package_root),
+    }
+}
+
+fn detect_python_package_version_files(
+    repo_root: &Path,
+    package_root: &Path,
+) -> Result<Vec<VersionFileConfig>> {
     let mut version_files = Vec::new();
     let pyproject_path = package_root.join("pyproject.toml");
     if pyproject_path.exists() {
@@ -613,6 +671,42 @@ fn detect_package_version_files(
 
     version_files.sort_by(|left, right| left.path.cmp(&right.path));
     version_files.dedup_by(|left, right| left.path == right.path);
+    Ok(version_files)
+}
+
+fn detect_rust_package_version_files(
+    repo_root: &Path,
+    package_root: &Path,
+) -> Result<Vec<VersionFileConfig>> {
+    let cargo_toml_path = package_root.join("Cargo.toml");
+    if !cargo_toml_path.exists() {
+        return Ok(Vec::new());
+    }
+
+    Ok(vec![VersionFileConfig {
+        path: relative_to_repo(repo_root, &cargo_toml_path)?,
+        key: Some("package.version".to_string()),
+        pattern: None,
+    }])
+}
+
+fn detect_go_package_version_files(
+    repo_root: &Path,
+    package_root: &Path,
+) -> Result<Vec<VersionFileConfig>> {
+    let mut version_files = Vec::new();
+
+    for candidate in ["VERSION", "version.txt"] {
+        let path = package_root.join(candidate);
+        if path.exists() {
+            version_files.push(VersionFileConfig {
+                path: relative_to_repo(repo_root, &path)?,
+                key: None,
+                pattern: Some("{version}".to_string()),
+            });
+        }
+    }
+
     Ok(version_files)
 }
 
@@ -754,6 +848,10 @@ fn detect_go_package_name(package_root: &Path) -> Option<String> {
             .filter(|value| !value.is_empty())
     })?;
     Some(module.rsplit('/').next().unwrap_or(module).to_string())
+}
+
+fn go_module_short_name(module: &str) -> String {
+    module.rsplit('/').next().unwrap_or(module).to_string()
 }
 
 fn relative_to_repo(repo_root: &Path, path: &Path) -> Result<String> {

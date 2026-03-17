@@ -94,7 +94,7 @@ fn workspace_reports_go_work_members() {
     .expect("write api go.mod");
     fs::write(
         repo_path.join("services/worker/go.mod"),
-        "module github.com/acme/worker\n\ngo 1.24.0\n",
+        "module github.com/acme/worker\n\ngo 1.24.0\n\nrequire github.com/acme/api v0.9.0\n",
     )
     .expect("write worker go.mod");
     fs::write(repo_path.join("services/api/VERSION"), "0.9.0\n").expect("write api version");
@@ -128,6 +128,7 @@ fn workspace_reports_go_work_members() {
         stdout.contains("services/worker (worker 1.1.0)"),
         "{stdout}"
     );
+    assert!(stdout.contains("depends on api"), "{stdout}");
     assert!(
         stdout.contains("workspace members have mismatched versions"),
         "{stdout}"
