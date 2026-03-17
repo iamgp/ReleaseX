@@ -291,6 +291,115 @@ cascade_bumps = true
     );
 }
 
+#[test]
+fn status_reports_go_workspace_with_cascade_bumps() {
+    let repo_dir = tempdir().expect("tempdir");
+    let repo_path = repo_dir.path();
+
+    run(repo_path, &["git", "init", "-b", "main"]);
+    run(repo_path, &["git", "config", "user.name", "Relx Test"]);
+    run(
+        repo_path,
+        &["git", "config", "user.email", "relx@example.com"],
+    );
+
+    fs::create_dir_all(repo_path.join("services/api")).expect("create api module");
+    fs::create_dir_all(repo_path.join("services/worker")).expect("create worker module");
+    fs::write(
+        repo_path.join("go.work"),
+        "go 1.24.0\n\nuse (\n    ./services/api\n    ./services/worker\n)\n",
+    )
+    .expect("write go.work");
+    fs::write(
+        repo_path.join("services/api/go.mod"),
+        "module github.com/acme/api\n\ngo 1.24.0\n",
+    )
+    .expect("write api go.mod");
+    fs::write(
+        repo_path.join("services/worker/go.mod"),
+        "module github.com/acme/worker\n\ngo 1.24.0\n\nrequire github.com/acme/api v0.4.0\n",
+    )
+    .expect("write worker go.mod");
+    fs::write(repo_path.join("services/api/VERSION"), "0.4.0\n").expect("write api version");
+    fs::write(repo_path.join("services/worker/VERSION"), "1.1.0\n").expect("write worker version");
+    fs::write(
+        repo_path.join("services/api/main.go"),
+        "package main\n\nfunc main() {}\n",
+    )
+    .expect("write api main");
+    fs::write(
+        repo_path.join("services/worker/main.go"),
+        "package main\n\nfunc main() {}\n",
+    )
+    .expect("write worker main");
+    fs::write(
+        repo_path.join("relx.toml"),
+        r#"[project]
+ecosystem = "go"
+
+[release]
+branch = "main"
+tag_prefix = "v"
+
+[versioning]
+initial_version = "0.1.0"
+
+[monorepo]
+enabled = true
+release_mode = "per_package"
+
+[workspace]
+cascade_bumps = true
+"#,
+    )
+    .expect("write config");
+
+    run(repo_path, &["git", "add", "."]);
+    run(
+        repo_path,
+        &["git", "commit", "-m", "chore: initial release"],
+    );
+    run(repo_path, &["git", "tag", "v0.1.0"]);
+
+    fs::write(
+        repo_path.join("services/api/main.go"),
+        "package main\n\nfunc main() {}\n\nfunc feature() {}\n",
+    )
+    .expect("update api main");
+    run(repo_path, &["git", "add", "."]);
+    run(repo_path, &["git", "commit", "-m", "feat: add api feature"]);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_relx"))
+        .args(["status", "--dry-run"])
+        .current_dir(repo_path)
+        .output()
+        .expect("run relx status");
+
+    assert!(
+        output.status.success(),
+        "status failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("Package discovery: go workspace (go.work use)"),
+        "{stdout}"
+    );
+    assert!(
+        stdout.contains("api [services/api] current=0.4.0 next=0.5.0 bump=minor"),
+        "{stdout}"
+    );
+    assert!(
+        stdout.contains("worker [services/worker] current=1.1.0 next=1.1.1 bump=patch"),
+        "{stdout}"
+    );
+    assert!(
+        stdout.contains("reason=cascade bump: depends on a package with a version bump"),
+        "{stdout}"
+    );
+}
+
 fn run(repo_path: &std::path::Path, args: &[&str]) {
     let status = Command::new(args[0])
         .args(&args[1..])

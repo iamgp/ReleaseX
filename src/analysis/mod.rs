@@ -863,7 +863,11 @@ fn relative_to_repo(repo_root: &Path, path: &Path) -> Result<String> {
 }
 
 fn normalize_relative_path(path: &str) -> String {
-    let normalized = path.trim_matches('/').replace('\\', "/");
+    let normalized = path
+        .trim()
+        .trim_start_matches("./")
+        .trim_matches('/')
+        .replace('\\', "/");
     if normalized.is_empty() {
         ".".to_string()
     } else {
