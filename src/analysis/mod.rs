@@ -8,8 +8,9 @@ use anyhow::{Context, Result, bail};
 
 use crate::{
     changelog::PendingChangelog,
-    config::{Config, VersionFileConfig},
+    config::{Config, Ecosystem, VersionFileConfig},
     conventional_commits::ConventionalCommit,
+    ecosystem,
     git::{CommitSummary, GitRepository},
     github::{self, GitHubClient},
     version::{BumpLevel, Version},
@@ -254,6 +255,14 @@ fn discover_packages(
         ));
     }
 
+    if let Some(cargo_roots) = discover_cargo_workspace(repo_root) {
+        let packages = cargo_roots
+            .iter()
+            .map(|package_root| load_package_definition(repo_root, package_root))
+            .collect::<Result<Vec<_>>>()?;
+        return Ok((packages, "cargo workspace (workspace.members)".to_string()));
+    }
+
     let mut package_roots = Vec::new();
     scan_for_package_roots(repo_root, repo_root, &mut package_roots);
     package_roots.sort();
@@ -320,6 +329,52 @@ pub fn discover_uv_workspace(repo_root: &Path) -> Option<Vec<String>> {
 }
 
 pub fn extract_dependency_names(repo_root: &Path, package_root: &str) -> Vec<String> {
+    let ecosystem = ecosystem::detect(repo_root, None);
+    match ecosystem {
+        Ecosystem::Python => extract_python_dependency_names(repo_root, package_root),
+        Ecosystem::Rust => extract_rust_dependency_names(repo_root, package_root),
+        Ecosystem::Go => Vec::new(),
+    }
+}
+
+pub fn discover_cargo_workspace(repo_root: &Path) -> Option<Vec<String>> {
+    let cargo_toml_path = repo_root.join("Cargo.toml");
+    let contents = fs::read_to_string(cargo_toml_path).ok()?;
+    let parsed = contents.parse::<toml::Table>().ok()?;
+
+    let members = parsed
+        .get("workspace")?
+        .as_table()?
+        .get("members")?
+        .as_array()?;
+
+    let mut roots = Vec::new();
+    for member in members {
+        let pattern = member.as_str()?;
+        if let Some(prefix) = pattern.strip_suffix("/*") {
+            let parent_dir = repo_root.join(prefix);
+            let entries = fs::read_dir(parent_dir).ok()?;
+            for entry in entries.flatten() {
+                if entry.path().is_dir() {
+                    let rel = format!("{}/{}", prefix, entry.file_name().to_string_lossy());
+                    roots.push(rel);
+                }
+            }
+        } else {
+            let dir = repo_root.join(pattern);
+            if dir.is_dir() {
+                roots.push(pattern.to_string());
+            }
+        }
+    }
+
+    roots.sort();
+    roots.dedup();
+
+    if roots.is_empty() { None } else { Some(roots) }
+}
+
+fn extract_python_dependency_names(repo_root: &Path, package_root: &str) -> Vec<String> {
     let pyproject_path = repo_root.join(package_root).join("pyproject.toml");
     let contents = match fs::read_to_string(pyproject_path) {
         Ok(c) => c,
@@ -349,6 +404,29 @@ pub fn extract_dependency_names(repo_root: &Path, package_root: &str) -> Vec<Str
             name.to_string()
         })
         .collect()
+}
+
+fn extract_rust_dependency_names(repo_root: &Path, package_root: &str) -> Vec<String> {
+    let cargo_toml_path = repo_root.join(package_root).join("Cargo.toml");
+    let contents = match fs::read_to_string(cargo_toml_path) {
+        Ok(c) => c,
+        Err(_) => return Vec::new(),
+    };
+    let parsed = match contents.parse::<toml::Table>() {
+        Ok(t) => t,
+        Err(_) => return Vec::new(),
+    };
+
+    let mut deps = Vec::new();
+    for section in ["dependencies", "dev-dependencies", "build-dependencies"] {
+        let Some(table) = parsed.get(section).and_then(|v| v.as_table()) else {
+            continue;
+        };
+        deps.extend(table.keys().cloned());
+    }
+    deps.sort();
+    deps.dedup();
+    deps
 }
 
 pub fn apply_cascade_bumps(
