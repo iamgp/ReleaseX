@@ -80,6 +80,80 @@ fn init_generates_repo_aware_config() {
     );
 }
 
+#[test]
+fn init_detects_rust_repos() {
+    let repo_dir = tempdir().expect("tempdir");
+    let repo_path = repo_dir.path();
+
+    run(repo_path, &["git", "init", "-b", "main"]);
+    run(repo_path, &["git", "config", "user.name", "Relx Test"]);
+    run(
+        repo_path,
+        &["git", "config", "user.email", "relx@example.com"],
+    );
+
+    fs::write(
+        repo_path.join("Cargo.toml"),
+        "[package]\nname = \"demo-rust\"\nversion = \"0.4.0\"\nedition = \"2024\"\n",
+    )
+    .expect("write Cargo.toml");
+
+    let init = Command::new(env!("CARGO_BIN_EXE_relx"))
+        .arg("init")
+        .current_dir(repo_path)
+        .output()
+        .expect("run relx init");
+    assert!(
+        init.status.success(),
+        "init failed: {}",
+        String::from_utf8_lossy(&init.stderr)
+    );
+
+    let config = fs::read_to_string(repo_path.join("relx.toml")).expect("read config");
+    assert!(config.contains("ecosystem = \"rust\""), "{config}");
+    assert!(config.contains("path = \"Cargo.toml\""), "{config}");
+    assert!(config.contains("key = \"package.version\""), "{config}");
+    assert!(config.contains("initial_version = \"0.4.0\""), "{config}");
+}
+
+#[test]
+fn init_scaffolds_go_version_file_when_missing() {
+    let repo_dir = tempdir().expect("tempdir");
+    let repo_path = repo_dir.path();
+
+    run(repo_path, &["git", "init", "-b", "main"]);
+    run(repo_path, &["git", "config", "user.name", "Relx Test"]);
+    run(
+        repo_path,
+        &["git", "config", "user.email", "relx@example.com"],
+    );
+
+    fs::write(
+        repo_path.join("go.mod"),
+        "module github.com/acme/demo-go\n\ngo 1.24.0\n",
+    )
+    .expect("write go.mod");
+
+    let init = Command::new(env!("CARGO_BIN_EXE_relx"))
+        .arg("init")
+        .current_dir(repo_path)
+        .output()
+        .expect("run relx init");
+    assert!(
+        init.status.success(),
+        "init failed: {}",
+        String::from_utf8_lossy(&init.stderr)
+    );
+
+    let config = fs::read_to_string(repo_path.join("relx.toml")).expect("read config");
+    assert!(config.contains("ecosystem = \"go\""), "{config}");
+    assert!(config.contains("path = \"VERSION\""), "{config}");
+    assert!(config.contains("pattern = \"{version}\""), "{config}");
+
+    let version_file = fs::read_to_string(repo_path.join("VERSION")).expect("read VERSION");
+    assert_eq!(version_file, "0.1.0\n");
+}
+
 fn run(repo_path: &Path, args: &[&str]) {
     let status = Command::new(args[0])
         .args(&args[1..])

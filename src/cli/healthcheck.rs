@@ -5,7 +5,8 @@ use console::style;
 
 use crate::{
     analysis::{detect_project_name, read_current_version},
-    config::Config,
+    config::{Config, Ecosystem},
+    ecosystem,
     git::{GitRepository, run_git},
     github, pypi,
     version::Version,
@@ -145,16 +146,17 @@ fn check_config(cli: &Cli, config: &Option<Config>) -> Vec<CheckResult> {
 
     match config {
         Some(cfg) => {
+            let ecosystem = ecosystem::detect(Path::new("."), Some(cfg));
             checks.push(CheckResult::Pass(format!(
                 "{} is valid",
                 cli.config_path().display()
             )));
 
-            let pyproject_exists = Path::new("pyproject.toml").exists();
-            if pyproject_exists {
-                checks.push(CheckResult::Pass("pyproject.toml found".to_string()));
+            let manifest = ecosystem::manifest_name(ecosystem);
+            if Path::new(manifest).exists() {
+                checks.push(CheckResult::Pass(format!("{manifest} found")));
             } else {
-                checks.push(CheckResult::Warn("pyproject.toml not found".to_string()));
+                checks.push(CheckResult::Warn(format!("{manifest} not found")));
             }
 
             match read_current_version(Path::new("."), &cfg.version_files) {
@@ -386,45 +388,48 @@ fn check_build(config: &Option<Config>) -> Vec<CheckResult> {
             return checks;
         }
     };
+    let ecosystem = ecosystem::detect(Path::new("."), Some(config));
+    let build_backend = if ecosystem == Ecosystem::Python {
+        ecosystem::python_build_backend(Path::new("."))
+    } else {
+        None
+    };
 
-    if config.publish.enabled {
-        let provider = config.publish.provider.trim();
-        let installed = match provider {
-            "uv" => Command::new("uv")
-                .arg("--version")
-                .output()
-                .is_ok_and(|o| o.status.success()),
-            "twine" => Command::new("twine")
-                .arg("--version")
-                .output()
-                .is_ok_and(|o| o.status.success()),
-            _ => false,
-        };
-
-        if installed {
-            checks.push(CheckResult::Pass(format!("{} is installed", provider)));
-        } else {
-            checks.push(CheckResult::Fail(format!("{} is not installed", provider)));
-        }
+    let tool_check = ecosystem::tool_check_command(ecosystem, Some(config.publish.provider.trim()));
+    let tool_name = tool_check.first().copied().unwrap_or("tool");
+    if Command::new(tool_name)
+        .args(&tool_check[1..])
+        .output()
+        .is_ok_and(|o| o.status.success())
+    {
+        checks.push(CheckResult::Pass(format!("{tool_name} is installed")));
+    } else {
+        checks.push(CheckResult::Fail(format!("{tool_name} is not installed")));
     }
 
-    if !Path::new("pyproject.toml").exists() {
-        checks.push(CheckResult::Warn(
-            "pyproject.toml not found (build may fail)".to_string(),
-        ));
+    let manifest = ecosystem::manifest_name(ecosystem);
+    if !Path::new(manifest).exists() {
+        checks.push(CheckResult::Warn(format!(
+            "{manifest} not found (build may fail)"
+        )));
         return checks;
     }
 
-    checks.push(CheckResult::Pass("pyproject.toml exists".to_string()));
+    checks.push(CheckResult::Pass(format!("{manifest} exists")));
 
-    if Command::new("uv")
-        .args(["build", "--no-sources"])
+    let build_cmd = ecosystem::healthcheck_command(ecosystem, build_backend.as_deref());
+    let build_program = build_cmd.first().copied().unwrap_or("build");
+    if Command::new(build_program)
+        .args(&build_cmd[1..])
         .output()
         .is_ok_and(|output| output.status.success())
     {
-        checks.push(CheckResult::Pass("uv build succeeds".to_string()));
+        checks.push(CheckResult::Pass(format!(
+            "{} succeeds",
+            build_cmd.join(" ")
+        )));
     } else {
-        checks.push(CheckResult::Warn("uv build failed".to_string()));
+        checks.push(CheckResult::Warn(format!("{} failed", build_cmd.join(" "))));
     }
 
     checks
@@ -437,6 +442,19 @@ fn check_pypi(config: &Option<Config>, repo: &Option<GitRepository>) -> Vec<Chec
         Some(c) => c,
         None => return checks,
     };
+    let ecosystem = ecosystem::detect(Path::new("."), Some(config));
+
+    if ecosystem != Ecosystem::Python {
+        checks.push(CheckResult::Pass(format!(
+            "{} ecosystem detected, skipping PyPI checks",
+            match ecosystem {
+                Ecosystem::Python => "python",
+                Ecosystem::Rust => "rust",
+                Ecosystem::Go => "go",
+            }
+        )));
+        return checks;
+    }
 
     if !config.publish.enabled {
         checks.push(CheckResult::Pass(

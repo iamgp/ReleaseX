@@ -13,7 +13,6 @@ use anyhow::Result;
 use clap::{Args, Parser, Subcommand};
 
 pub const DEFAULT_CONFIG: &str = "relx.toml";
-pub const LEGACY_CONFIG: &str = "pyrls.toml";
 
 #[derive(Debug, Parser)]
 #[command(
@@ -109,30 +108,12 @@ pub enum PreReleaseKind {
 
 impl Cli {
     pub fn config_path(&self) -> PathBuf {
-        if self.config.exists() {
-            return self.config.clone();
-        }
-
-        if self.config == PathBuf::from(DEFAULT_CONFIG) {
-            let legacy = PathBuf::from(LEGACY_CONFIG);
-            if legacy.exists() {
-                return legacy;
-            }
-        }
-
         self.config.clone()
     }
 
     pub fn config_path_for_init_conflict(&self) -> Option<PathBuf> {
         if self.config.exists() {
             return Some(self.config.clone());
-        }
-
-        if self.config == PathBuf::from(DEFAULT_CONFIG) {
-            let legacy = PathBuf::from(LEGACY_CONFIG);
-            if legacy.exists() {
-                return Some(legacy);
-            }
         }
 
         None

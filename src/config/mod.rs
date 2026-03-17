@@ -6,6 +6,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     #[serde(default)]
+    pub project: ProjectConfig,
+    #[serde(default)]
     pub release: ReleaseConfig,
     #[serde(default)]
     pub versioning: VersioningConfig,
@@ -121,6 +123,20 @@ impl Config {
             None => Some(default_section_for_commit_type(commit_type).to_string()),
         }
     }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ProjectConfig {
+    #[serde(default)]
+    pub ecosystem: Option<Ecosystem>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Ecosystem {
+    Python,
+    Rust,
+    Go,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

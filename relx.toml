@@ -1,3 +1,6 @@
+[project]
+ecosystem = "rust"
+
 [release]
 branch = "main"
 tag_prefix = "v"

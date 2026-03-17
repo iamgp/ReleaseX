@@ -9,7 +9,8 @@ use toml::Value;
 
 use crate::{
     cli::Cli,
-    config::{ChangelogConfig, Config, GitHubConfig, VersionFileConfig},
+    config::{ChangelogConfig, Config, Ecosystem, GitHubConfig, VersionFileConfig},
+    ecosystem,
     git::GitRepository,
     github, progress,
 };
@@ -25,7 +26,7 @@ pub fn run(cli: &Cli) -> Result<()> {
         .map(|repo| repo.path())
         .unwrap_or(Path::new("."));
 
-    let config = if cli.dry_run {
+    let plan = if cli.dry_run {
         build_config(repo.as_ref(), repo_root)
     } else {
         let sp = progress::spinner("Detecting project layout…");
@@ -33,13 +34,20 @@ pub fn run(cli: &Cli) -> Result<()> {
         sp.finish_and_clear();
         result
     };
-    let rendered = toml::to_string_pretty(&config).context("failed to render config")?;
+    let rendered = toml::to_string_pretty(&plan.config).context("failed to render config")?;
 
     if cli.dry_run {
         println!("Would create {}", cli.config.display());
+        for (path, _) in &plan.extra_files {
+            println!("Would create {}", path.display());
+        }
         println!();
         print!("{rendered}");
         return Ok(());
+    }
+
+    for (path, contents) in &plan.extra_files {
+        fs::write(path, contents).with_context(|| format!("failed to write {}", path.display()))?;
     }
 
     fs::write(&cli.config, rendered)
@@ -49,12 +57,27 @@ pub fn run(cli: &Cli) -> Result<()> {
     Ok(())
 }
 
-fn build_config(repo: Option<&GitRepository>, repo_root: &Path) -> Config {
+struct InitPlan {
+    config: Config,
+    extra_files: Vec<(PathBuf, String)>,
+}
+
+fn build_config(repo: Option<&GitRepository>, repo_root: &Path) -> InitPlan {
     let branch = repo
         .and_then(|repo| repo.current_branch().ok())
         .filter(|branch| !branch.trim().is_empty())
         .unwrap_or_else(|| "main".to_string());
-    let version_files = detect_version_files(repo_root);
+    let detected_ecosystem = ecosystem::detect(repo_root, None);
+    let mut version_files = ecosystem::discover_version_files(repo_root, detected_ecosystem);
+    let mut extra_files = Vec::new();
+    if detected_ecosystem == Ecosystem::Go && version_files.is_empty() {
+        version_files.push(VersionFileConfig {
+            path: "VERSION".to_string(),
+            key: None,
+            pattern: Some("{version}".to_string()),
+        });
+        extra_files.push((repo_root.join("VERSION"), "0.1.0\n".to_string()));
+    }
     let initial_version =
         detect_initial_version(repo_root, &version_files).unwrap_or_else(|| "0.1.0".to_string());
     let mut github_config = GitHubConfig::default();
@@ -66,23 +89,29 @@ fn build_config(repo: Option<&GitRepository>, repo_root: &Path) -> Config {
         github_config.repo = Some(repo_ref.name);
     }
 
-    Config {
-        release: crate::config::ReleaseConfig {
-            branch,
-            ..Default::default()
+    InitPlan {
+        config: Config {
+            project: crate::config::ProjectConfig {
+                ecosystem: Some(detected_ecosystem),
+            },
+            release: crate::config::ReleaseConfig {
+                branch,
+                ..Default::default()
+            },
+            versioning: crate::config::VersioningConfig {
+                initial_version,
+                ..Default::default()
+            },
+            monorepo: Default::default(),
+            version_files,
+            changelog: default_changelog_config(),
+            publish: Default::default(),
+            github: github_config,
+            workspace: Default::default(),
+            ci: Default::default(),
+            channels: Vec::new(),
         },
-        versioning: crate::config::VersioningConfig {
-            initial_version,
-            ..Default::default()
-        },
-        monorepo: Default::default(),
-        version_files,
-        changelog: default_changelog_config(),
-        publish: Default::default(),
-        github: github_config,
-        workspace: Default::default(),
-        ci: Default::default(),
-        channels: Vec::new(),
+        extra_files,
     }
 }
 
@@ -98,40 +127,6 @@ fn default_changelog_config() -> ChangelogConfig {
         sections,
         ..Default::default()
     }
-}
-
-fn detect_version_files(repo_root: &Path) -> Vec<VersionFileConfig> {
-    let mut version_files = Vec::new();
-
-    let pyproject_path = repo_root.join("pyproject.toml");
-    if pyproject_path.exists() {
-        version_files.push(VersionFileConfig {
-            path: "pyproject.toml".to_string(),
-            key: Some("project.version".to_string()),
-            pattern: None,
-        });
-    }
-
-    let setup_cfg_path = repo_root.join("setup.cfg");
-    if setup_cfg_path.exists() {
-        version_files.push(VersionFileConfig {
-            path: "setup.cfg".to_string(),
-            key: Some("metadata.version".to_string()),
-            pattern: None,
-        });
-    }
-
-    version_files.extend(detect_python_version_files(repo_root));
-
-    if version_files.is_empty() {
-        version_files.push(VersionFileConfig {
-            path: "pyproject.toml".to_string(),
-            key: Some("project.version".to_string()),
-            pattern: None,
-        });
-    }
-
-    version_files
 }
 
 fn detect_initial_version(repo_root: &Path, version_files: &[VersionFileConfig]) -> Option<String> {
@@ -154,87 +149,6 @@ fn detect_initial_version(repo_root: &Path, version_files: &[VersionFileConfig])
         if value.is_some() {
             return value;
         }
-    }
-
-    None
-}
-
-fn detect_python_version_files(repo_root: &Path) -> Vec<VersionFileConfig> {
-    let mut candidates = Vec::new();
-
-    for relative in [PathBuf::from("src"), PathBuf::from(".")] {
-        let dir = repo_root.join(&relative);
-        if !dir.is_dir() {
-            continue;
-        }
-
-        scan_python_dir(repo_root, &dir, &mut candidates);
-    }
-
-    candidates.sort_by(|left, right| left.path.cmp(&right.path));
-    candidates.dedup_by(|left, right| left.path == right.path);
-    candidates
-}
-
-fn scan_python_dir(repo_root: &Path, dir: &Path, candidates: &mut Vec<VersionFileConfig>) {
-    let Ok(entries) = fs::read_dir(dir) else {
-        return;
-    };
-
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if matches!(
-            path.file_name().and_then(|name| name.to_str()),
-            Some(".git" | "target" | ".venv" | "venv" | "__pycache__")
-        ) {
-            continue;
-        }
-
-        if path.is_dir() {
-            scan_python_dir(repo_root, &path, candidates);
-            continue;
-        }
-
-        if path.file_name().and_then(|name| name.to_str()) != Some("__init__.py") {
-            continue;
-        }
-
-        let Some(pattern) = detect_python_pattern(&path) else {
-            continue;
-        };
-        let Ok(relative_path) = path.strip_prefix(repo_root) else {
-            continue;
-        };
-
-        candidates.push(VersionFileConfig {
-            path: relative_path.to_string_lossy().replace('\\', "/"),
-            key: None,
-            pattern: Some(pattern),
-        });
-    }
-}
-
-fn detect_python_pattern(path: &Path) -> Option<String> {
-    let contents = fs::read_to_string(path).ok()?;
-
-    for line in contents.lines() {
-        let trimmed = line.trim();
-        if !trimmed.starts_with("__version__") {
-            continue;
-        }
-
-        let (prefix, raw_value) = trimmed.split_once('=')?;
-        let value = raw_value.trim();
-        if value.len() < 2 {
-            continue;
-        }
-
-        let quote = value.chars().next()?;
-        if (quote != '"' && quote != '\'') || !value.ends_with(quote) {
-            continue;
-        }
-
-        return Some(format!("{}= {}{{version}}{}", prefix, quote, quote));
     }
 
     None

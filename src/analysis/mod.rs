@@ -532,15 +532,15 @@ fn scan_python_version_files(
 }
 
 fn detect_package_name(package_root: &Path) -> Option<String> {
-    let pyproject = package_root.join("pyproject.toml");
-    let contents = fs::read_to_string(pyproject).ok()?;
-    let parsed = contents.parse::<toml::Table>().ok()?;
-    parsed
-        .get("project")?
-        .as_table()?
-        .get("name")?
-        .as_str()
-        .map(ToString::to_string)
+    if let Some(name) = detect_python_package_name(package_root) {
+        return Some(name);
+    }
+
+    if let Some(name) = detect_rust_package_name(package_root) {
+        return Some(name);
+    }
+
+    detect_go_package_name(package_root)
 }
 
 pub fn detect_project_name(repo_root: &Path, package_root: &str) -> Option<String> {
@@ -579,11 +579,50 @@ fn detect_python_pattern(path: &Path) -> Option<String> {
 }
 
 fn package_name_from_repo_root(repo_root: &Path) -> String {
-    repo_root
-        .file_name()
-        .unwrap_or_default()
-        .to_string_lossy()
-        .into_owned()
+    detect_package_name(repo_root).unwrap_or_else(|| {
+        repo_root
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .into_owned()
+    })
+}
+
+fn detect_python_package_name(package_root: &Path) -> Option<String> {
+    let pyproject = package_root.join("pyproject.toml");
+    let contents = fs::read_to_string(pyproject).ok()?;
+    let parsed = contents.parse::<toml::Table>().ok()?;
+    parsed
+        .get("project")?
+        .as_table()?
+        .get("name")?
+        .as_str()
+        .map(ToString::to_string)
+}
+
+fn detect_rust_package_name(package_root: &Path) -> Option<String> {
+    let cargo_toml = package_root.join("Cargo.toml");
+    let contents = fs::read_to_string(cargo_toml).ok()?;
+    let parsed = contents.parse::<toml::Table>().ok()?;
+    parsed
+        .get("package")?
+        .as_table()?
+        .get("name")?
+        .as_str()
+        .map(ToString::to_string)
+}
+
+fn detect_go_package_name(package_root: &Path) -> Option<String> {
+    let go_mod = package_root.join("go.mod");
+    let contents = fs::read_to_string(go_mod).ok()?;
+    let module = contents.lines().find_map(|line| {
+        let trimmed = line.trim();
+        trimmed
+            .strip_prefix("module ")
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+    })?;
+    Some(module.rsplit('/').next().unwrap_or(module).to_string())
 }
 
 fn relative_to_repo(repo_root: &Path, path: &Path) -> Result<String> {
