@@ -1,5 +1,6 @@
 mod analysis;
 mod changelog;
+mod channels;
 mod cli;
 mod config;
 mod conventional_commits;

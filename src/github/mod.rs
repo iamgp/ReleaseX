@@ -7,7 +7,7 @@ use tempfile::tempdir;
 
 use crate::{
     analysis::{self, ReleaseAnalysis},
-    changelog,
+    changelog, channels,
     config::{Config, GitHubConfig},
     git::{GitRepository, run_git},
 };
@@ -47,7 +47,11 @@ pub struct ReleaseTagPlan {
     pub label: String,
 }
 
-pub fn build_release_pr_plan(config: &Config, analysis: &ReleaseAnalysis) -> Result<ReleasePrPlan> {
+pub fn build_release_pr_plan(
+    config: &Config,
+    analysis: &ReleaseAnalysis,
+    current_branch: &str,
+) -> Result<ReleasePrPlan> {
     let release_label = release_label(analysis)?;
     let version = analysis
         .next_version
@@ -81,7 +85,7 @@ pub fn build_release_pr_plan(config: &Config, analysis: &ReleaseAnalysis) -> Res
     Ok(ReleasePrPlan {
         version,
         branch,
-        base: config.release.branch.clone(),
+        base: channels::release_base_branch(config, current_branch),
         title,
         body,
         labels: vec![config.github.pending_label.clone()],
@@ -148,7 +152,8 @@ pub fn execute_release_pr(
     config: &Config,
     analysis: &ReleaseAnalysis,
 ) -> Result<()> {
-    let plan = build_release_pr_plan(config, analysis)?;
+    let current_branch = repo.current_branch()?;
+    let plan = build_release_pr_plan(config, analysis, &current_branch)?;
     let repo_ref = detect_repo(repo, &config.github)?;
     let token = env::var(&config.github.token_env)
         .with_context(|| format!("missing GitHub token in {}", config.github.token_env))?;
@@ -265,7 +270,8 @@ fn execute_monorepo_unified_pr(
     analysis: &ReleaseAnalysis,
     selected: &[&analysis::PackageReleaseAnalysis],
 ) -> Result<()> {
-    let plan = build_release_pr_plan(config, analysis)?;
+    let current_branch = repo.current_branch()?;
+    let plan = build_release_pr_plan(config, analysis, &current_branch)?;
     let repo_ref = detect_repo(repo, &config.github)?;
     let token = env::var(&config.github.token_env)
         .with_context(|| format!("missing GitHub token in {}", config.github.token_env))?;
@@ -362,7 +368,8 @@ fn execute_monorepo_per_package_pr(
     package_analysis: &ReleaseAnalysis,
     package: &analysis::PackageReleaseAnalysis,
 ) -> Result<()> {
-    let plan = build_release_pr_plan(config, package_analysis)?;
+    let current_branch = repo.current_branch()?;
+    let plan = build_release_pr_plan(config, package_analysis, &current_branch)?;
     let repo_ref = detect_repo(repo, &config.github)?;
     let token = env::var(&config.github.token_env)
         .with_context(|| format!("missing GitHub token in {}", config.github.token_env))?;
@@ -589,7 +596,8 @@ pub fn print_release_pr_dry_run(
     analysis: &ReleaseAnalysis,
 ) -> Result<()> {
     let repo_ref = detect_repo(repo, &config.github)?;
-    let plan = build_release_pr_plan(config, analysis)?;
+    let current_branch = repo.current_branch()?;
+    let plan = build_release_pr_plan(config, analysis, &current_branch)?;
     if config.monorepo.enabled {
         let selected = selected_package_summaries(analysis);
         println!(
@@ -1066,7 +1074,7 @@ mod tests {
         .expect("config");
         let analysis = sample_analysis();
 
-        let plan = build_release_pr_plan(&config, &analysis).expect("plan");
+        let plan = build_release_pr_plan(&config, &analysis, "main").expect("plan");
         assert_eq!(plan.branch, "pyrls/release/v1.2.0");
         assert!(plan.title.contains("v1.2.0"));
         assert!(plan.body.contains("Release summary"));
@@ -1119,7 +1127,7 @@ mod tests {
         .expect("config");
         let analysis = monorepo_analysis();
 
-        let plan = build_release_pr_plan(&config, &analysis).expect("plan");
+        let plan = build_release_pr_plan(&config, &analysis, "main").expect("plan");
         assert!(plan.branch.contains("monorepo"), "{}", plan.branch);
         assert!(plan.title.contains("core 1.2.0"), "{}", plan.title);
         assert!(plan.title.contains("cli 0.5.1"), "{}", plan.title);

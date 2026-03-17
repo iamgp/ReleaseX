@@ -1,5 +1,6 @@
 pub mod analysis;
 pub mod changelog;
+pub mod channels;
 pub mod config;
 pub mod conventional_commits;
 pub mod git;

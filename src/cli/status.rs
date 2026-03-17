@@ -4,6 +4,7 @@ use std::env;
 
 use crate::{
     analysis::{self, PackageReleaseAnalysis, ReleaseAnalysis},
+    channels,
     cli::{Cli, StatusArgs},
     config::Config,
     conventional_commits::ConventionalCommit,
@@ -16,7 +17,7 @@ pub fn run(cli: &Cli, args: &StatusArgs) -> Result<()> {
     let repo = GitRepository::discover(".").context("failed to inspect git repository")?;
     let config = Config::load(&cli.config)?;
 
-    let analysis = if cli.dry_run {
+    let mut analysis = if cli.dry_run {
         match &args.since {
             Some(tag) => analysis::analyze_since(&repo, &config, tag)?,
             None => analysis::analyze(&repo, &config)?,
@@ -30,31 +31,34 @@ pub fn run(cli: &Cli, args: &StatusArgs) -> Result<()> {
         sp.finish_and_clear();
         result?
     };
+    let branch = repo
+        .current_branch()
+        .unwrap_or_else(|_| "unknown".to_string());
+    let resolved_channel =
+        channels::apply_channel_to_analysis(&repo, &config, &mut analysis, &branch, None)?;
 
     if args.channel {
-        print_channel(&repo, &config);
+        print_channel(&branch, resolved_channel.as_ref());
     } else if args.json {
-        print_json(&repo, &config, &analysis)?;
+        print_json(
+            &repo,
+            &config,
+            &analysis,
+            &branch,
+            resolved_channel.as_ref(),
+        )?;
     } else if args.short {
         print_short(&analysis);
     } else if cli.dry_run && !args.json && !args.short {
         print_legacy(cli, &repo, &analysis)?;
     } else {
-        print_dashboard(&repo, &config, &analysis, args)?;
+        print_dashboard(&repo, &config, &analysis, args, &branch)?;
     }
 
     Ok(())
 }
 
-fn print_channel(repo: &GitRepository, config: &Config) {
-    let branch = repo
-        .current_branch()
-        .unwrap_or_else(|_| "unknown".to_string());
-    let channel = config
-        .channels
-        .iter()
-        .find(|channel| channel.branch == branch);
-
+fn print_channel(branch: &str, channel: Option<&channels::ResolvedChannel>) {
     match channel {
         Some(channel) => {
             let prerelease = channel.prerelease.as_deref().unwrap_or("stable");
@@ -141,14 +145,13 @@ fn print_legacy(cli: &Cli, repo: &GitRepository, analysis: &ReleaseAnalysis) -> 
     Ok(())
 }
 
-fn print_json(repo: &GitRepository, config: &Config, analysis: &ReleaseAnalysis) -> Result<()> {
-    let branch = repo
-        .current_branch()
-        .unwrap_or_else(|_| "unknown".to_string());
-    let channel = config
-        .channels
-        .iter()
-        .find(|channel| channel.branch == branch);
+fn print_json(
+    repo: &GitRepository,
+    config: &Config,
+    analysis: &ReleaseAnalysis,
+    branch: &str,
+    channel: Option<&channels::ResolvedChannel>,
+) -> Result<()> {
     let github_status = fetch_github_status(repo, config, analysis).ok().flatten();
     let packages: Vec<serde_json::Value> = analysis
         .package_plan
@@ -230,19 +233,17 @@ fn print_dashboard(
     config: &Config,
     analysis: &ReleaseAnalysis,
     args: &StatusArgs,
+    branch: &str,
 ) -> Result<()> {
     println!();
     println!("{}", style("pyrls status").bold());
     println!();
 
-    let branch = repo
-        .current_branch()
-        .unwrap_or_else(|_| "unknown".to_string());
     let last_tag = repo.latest_tag().unwrap_or(None);
     let github_status = fetch_github_status(repo, config, analysis).ok().flatten();
 
     for pkg in &analysis.package_plan.packages {
-        print_package_section(pkg, &branch, &last_tag, config, args);
+        print_package_section(pkg, branch, &last_tag, config, args);
         println!();
     }
 
@@ -441,7 +442,8 @@ fn fetch_github_status(
     let token = env::var(&config.github.token_env)
         .with_context(|| format!("missing GitHub token in {}", config.github.token_env))?;
     let client = GitHubClient::new(&config.github.api_base, &token, repo_ref)?;
-    let plan = github::build_release_pr_plan(config, analysis)?;
+    let current_branch = repo.current_branch()?;
+    let plan = github::build_release_pr_plan(config, analysis, &current_branch)?;
     let Some(pr) = client.find_open_pr(&plan.branch, &plan.base)? else {
         return Ok(None);
     };

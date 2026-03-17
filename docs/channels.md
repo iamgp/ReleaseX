@@ -30,8 +30,10 @@ version_range = ">=1.0.0,<2.0.0"
 `pyrls` uses channel config for:
 
 - `pyrls status --channel`
+- branch-aware `pyrls status` version previews
 - `pyrls release pr --channel ...`
 - `pyrls release tag --channel ...`
+- release PR base branch resolution
 - prerelease numbering via the PyPI project history when available
 - simple version-range guards
 
@@ -65,6 +67,12 @@ or from the `beta` branch:
 ```bash
 pyrls release pr
 ```
+
+On the `beta` branch, `pyrls` will:
+
+- preview `next_version` as a beta version in `status`
+- target `beta` as the release PR base branch
+- generate tags like `v1.2.3b1`
 
 ### Maintenance branch guard
 

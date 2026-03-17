@@ -82,6 +82,21 @@ For PyPI OIDC trusted publishing:
 2. On tag creation, run `pyrls release publish`.
 3. Optionally run `pyrls healthcheck` and `pyrls status --json` in CI for observability.
 
+If you use channels for both stable and beta releases, trigger on both branches:
+
+```yaml
+on:
+  push:
+    branches: [main, beta]
+```
+
+Then:
+
+- pushes to `beta` produce beta release PRs and beta tags
+- pushes to `main` produce stable release PRs and stable tags
+
+No special GitHub Action input is required; the branch and channel config drive the behavior.
+
 ## Maturin projects
 
 When the build backend includes `maturin`, `pyrls generate-ci` emits a `maturin-action` build step instead of a plain `uv build`.

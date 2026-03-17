@@ -4,7 +4,9 @@ use anyhow::{Context, Result};
 use console::style;
 use openssl::sha::sha256;
 
-use crate::{analysis, changelog, cli::Cli, config::Config, git::GitRepository, github, progress};
+use crate::{
+    analysis, changelog, channels, cli::Cli, config::Config, git::GitRepository, github, progress,
+};
 
 enum BuildResult {
     Passed,
@@ -31,7 +33,9 @@ pub fn run(cli: &Cli) -> Result<()> {
     let sp = progress::spinner("Analyzing commits…");
     let analysis = analysis::analyze(&repo, &config);
     sp.finish_and_clear();
-    let analysis = analysis?;
+    let mut analysis = analysis?;
+    let current_branch = repo.current_branch()?;
+    channels::apply_channel_to_analysis(&repo, &config, &mut analysis, &current_branch, None)?;
 
     let next_version = analysis
         .next_version
@@ -50,7 +54,7 @@ pub fn run(cli: &Cli) -> Result<()> {
         .context("failed to write CHANGELOG_ENTRY.md")?;
 
     // Generate release PR body
-    let pr_plan = github::build_release_pr_plan(&config, &analysis)?;
+    let pr_plan = github::build_release_pr_plan(&config, &analysis, &current_branch)?;
     fs::write(snapshot_dir.join("RELEASE_PR_BODY.md"), &pr_plan.body)
         .context("failed to write RELEASE_PR_BODY.md")?;
 

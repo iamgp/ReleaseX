@@ -83,7 +83,7 @@ fn build_command_for_backend(backend: &str) -> &str {
 }
 
 fn generate_github_workflow(config: &Config, build_backend: &str) -> String {
-    let branch = &config.release.branch;
+    let branches = workflow_branches(config);
     let build_cmd = build_command_for_backend(build_backend);
     let is_maturin = build_backend.contains("maturin");
 
@@ -97,7 +97,7 @@ fn generate_github_workflow(config: &Config, build_backend: &str) -> String {
     yaml.push('\n');
     yaml.push_str("on:\n");
     yaml.push_str("  push:\n");
-    yaml.push_str(&format!("    branches: [{}]\n", branch));
+    yaml.push_str(&format!("    branches: [{}]\n", branches.join(", ")));
     yaml.push('\n');
     yaml.push_str("permissions:\n");
     yaml.push_str("  contents: write\n");
@@ -120,10 +120,7 @@ fn generate_github_workflow(config: &Config, build_backend: &str) -> String {
             yaml.push('\n');
             yaml.push_str("      - uses: pyrls/action@v1\n");
             yaml.push_str("        with:\n");
-            yaml.push_str(&format!(
-                "          command: release pr --channel {}\n",
-                branch
-            ));
+            yaml.push_str("          command: release pr\n");
             yaml.push_str("        env:\n");
             yaml.push_str("          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}\n");
         }
@@ -169,6 +166,21 @@ fn generate_github_workflow(config: &Config, build_backend: &str) -> String {
     }
 
     yaml
+}
+
+fn workflow_branches(config: &Config) -> Vec<String> {
+    if !config.channels.is_empty() {
+        let mut branches: Vec<String> = config
+            .channels
+            .iter()
+            .map(|channel| channel.branch.clone())
+            .collect();
+        branches.sort();
+        branches.dedup();
+        return branches;
+    }
+
+    vec![config.release.branch.clone()]
 }
 
 fn render_diff(existing: &str, generated: &str) -> String {
