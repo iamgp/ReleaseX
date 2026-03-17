@@ -2,7 +2,7 @@
 ecosystem = "rust"
 
 [release]
-branch = "main"
+branch = "beta"
 tag_prefix = "v"
 changelog_file = "CHANGELOG.md"
 
@@ -18,4 +18,13 @@ enabled = false
 
 [github]
 owner = "iamgp"
-repo = "ReleaseX"
+repo = "pyrls"
+
+[[channels]]
+branch = "main"
+publish = false
+
+[[channels]]
+branch = "beta"
+publish = false
+prerelease = "b"
