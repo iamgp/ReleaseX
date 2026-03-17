@@ -174,6 +174,8 @@ fn analyze_monorepo(
         });
     }
 
+    apply_cascade_bumps(repo.path(), config, &mut packages);
+
     let selected_packages = packages.iter().filter(|package| package.selected);
     let aggregate_current_version = selected_packages
         .clone()
@@ -221,6 +223,17 @@ fn discover_packages(
         return Ok((packages, "[monorepo].packages".to_string()));
     }
 
+    if let Some(uv_roots) = discover_uv_workspace(repo_root) {
+        let packages = uv_roots
+            .iter()
+            .map(|package_root| load_package_definition(repo_root, package_root))
+            .collect::<Result<Vec<_>>>()?;
+        return Ok((
+            packages,
+            "uv workspace (tool.uv.workspace.members)".to_string(),
+        ));
+    }
+
     let mut package_roots = Vec::new();
     scan_for_package_roots(repo_root, repo_root, &mut package_roots);
     package_roots.sort();
@@ -234,6 +247,138 @@ fn discover_packages(
         packages,
         "auto-discovered package pyproject.toml files".to_string(),
     ))
+}
+
+pub fn discover_uv_workspace(repo_root: &Path) -> Option<Vec<String>> {
+    let pyproject_path = repo_root.join("pyproject.toml");
+    let contents = fs::read_to_string(pyproject_path).ok()?;
+    let parsed = contents.parse::<toml::Table>().ok()?;
+
+    let members = parsed
+        .get("tool")?
+        .as_table()?
+        .get("uv")?
+        .as_table()?
+        .get("workspace")?
+        .as_table()?
+        .get("members")?
+        .as_array()?;
+
+    let mut roots = Vec::new();
+    for member in members {
+        let pattern = member.as_str()?;
+        if let Some(prefix) = pattern.strip_suffix("/*") {
+            let parent_dir = repo_root.join(prefix);
+            let entries = fs::read_dir(parent_dir).ok()?;
+            for entry in entries.flatten() {
+                if entry.path().is_dir() {
+                    let rel = format!(
+                        "{}/{}",
+                        prefix,
+                        entry.file_name().to_string_lossy()
+                    );
+                    roots.push(rel);
+                }
+            }
+        } else if let Some(prefix) = pattern.strip_suffix("/**") {
+            let parent_dir = repo_root.join(prefix);
+            let entries = fs::read_dir(parent_dir).ok()?;
+            for entry in entries.flatten() {
+                if entry.path().is_dir() {
+                    let rel = format!(
+                        "{}/{}",
+                        prefix,
+                        entry.file_name().to_string_lossy()
+                    );
+                    roots.push(rel);
+                }
+            }
+        } else {
+            let dir = repo_root.join(pattern);
+            if dir.is_dir() {
+                roots.push(pattern.to_string());
+            }
+        }
+    }
+
+    roots.sort();
+    roots.dedup();
+
+    if roots.is_empty() {
+        None
+    } else {
+        Some(roots)
+    }
+}
+
+pub fn extract_dependency_names(repo_root: &Path, package_root: &str) -> Vec<String> {
+    let pyproject_path = repo_root.join(package_root).join("pyproject.toml");
+    let contents = match fs::read_to_string(pyproject_path) {
+        Ok(c) => c,
+        Err(_) => return Vec::new(),
+    };
+    let parsed = match contents.parse::<toml::Table>() {
+        Ok(t) => t,
+        Err(_) => return Vec::new(),
+    };
+
+    let Some(deps) = parsed
+        .get("project")
+        .and_then(|v| v.as_table())
+        .and_then(|t| t.get("dependencies"))
+        .and_then(|v| v.as_array())
+    else {
+        return Vec::new();
+    };
+
+    deps.iter()
+        .filter_map(|v| v.as_str())
+        .map(|s| {
+            let name = s
+                .split(|c: char| matches!(c, '>' | '<' | '=' | '!' | '[' | ';' | ' ' | '~'))
+                .next()
+                .unwrap_or(s);
+            name.to_string()
+        })
+        .collect()
+}
+
+pub fn apply_cascade_bumps(
+    repo_root: &Path,
+    config: &Config,
+    packages: &mut Vec<PackageReleaseAnalysis>,
+) {
+    if !config.workspace.cascade_bumps {
+        return;
+    }
+
+    let bumped_names: Vec<String> = packages
+        .iter()
+        .filter(|p| p.selected && p.next_version.is_some())
+        .map(|p| p.name.clone())
+        .collect();
+
+    if bumped_names.is_empty() {
+        return;
+    }
+
+    for i in 0..packages.len() {
+        if packages[i].selected {
+            continue;
+        }
+
+        let deps = extract_dependency_names(repo_root, &packages[i].root);
+        let depends_on_bumped = deps.iter().any(|dep| bumped_names.contains(dep));
+
+        if depends_on_bumped {
+            let next = BumpLevel::Patch.apply(&packages[i].current_version);
+            packages[i].next_version = next;
+            packages[i].bump = BumpLevel::Patch;
+            packages[i].selected = true;
+            packages[i].selection_reason =
+                "cascade bump: depends on a package with a version bump".to_string();
+        }
+    }
 }
 
 fn load_package_definition(repo_root: &Path, package_root: &str) -> Result<PackageDefinition> {

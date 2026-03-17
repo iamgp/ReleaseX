@@ -19,6 +19,8 @@ pub struct Config {
     pub publish: PublishConfig,
     #[serde(default)]
     pub github: GitHubConfig,
+    #[serde(default)]
+    pub workspace: WorkspaceConfig,
 }
 
 impl Config {
@@ -336,6 +338,12 @@ fn default_pending_label() -> String {
 
 fn default_tagged_label() -> String {
     "autorelease: tagged".to_string()
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct WorkspaceConfig {
+    #[serde(default)]
+    pub cascade_bumps: bool,
 }
 
 fn default_section_for_commit_type(commit_type: &str) -> &'static str {

@@ -3,6 +3,7 @@ pub mod init;
 pub mod release;
 pub mod status;
 pub mod validate;
+pub mod workspace;
 
 use std::path::PathBuf;
 
@@ -35,6 +36,7 @@ pub enum Command {
     Validate,
     Healthcheck(HealthcheckArgs),
     Release(ReleaseCommand),
+    Workspace,
 }
 
 #[derive(Debug, Args)]
@@ -104,5 +106,6 @@ pub fn run() -> Result<()> {
         Command::Validate => validate::run(&cli),
         Command::Healthcheck(args) => healthcheck::run(&cli, args),
         Command::Release(cmd) => release::run(&cli, cmd),
+        Command::Workspace => workspace::run(&cli),
     }
 }

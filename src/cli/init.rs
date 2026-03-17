@@ -80,6 +80,7 @@ fn build_config(repo: Option<&GitRepository>, repo_root: &Path) -> Config {
         changelog: default_changelog_config(),
         publish: Default::default(),
         github: github_config,
+        workspace: Default::default(),
     }
 }
 
