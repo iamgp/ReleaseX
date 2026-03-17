@@ -160,7 +160,7 @@ feat = "Added"
         "{stdout}"
     );
     assert!(
-        stdout.contains("Would create or update GitHub Release `Release v0.2.0`"),
+        stdout.contains("Would create or update GitHub Release `v0.2.0`"),
         "{stdout}"
     );
 }

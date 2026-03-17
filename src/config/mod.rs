@@ -291,7 +291,7 @@ fn default_pr_title() -> String {
 }
 
 fn default_release_name() -> String {
-    "Release {tag_name}".to_string()
+    "{tag_name}".to_string()
 }
 
 fn default_strategy() -> String {
