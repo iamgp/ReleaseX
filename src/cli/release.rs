@@ -153,7 +153,11 @@ pub fn run(cli: &Cli, command: &ReleaseCommand) -> Result<()> {
         }
         ReleaseSubcommand::Tag(args) => {
             adjust_for_merged_release_pr(&repo, &config, &mut analysis)?;
-            apply_channel_override(&repo, &config, &mut analysis, args)?;
+            let already_versioned =
+                analysis.next_version.as_ref() == Some(&analysis.current_version);
+            if !already_versioned {
+                apply_channel_override(&repo, &config, &mut analysis, args)?;
+            }
             apply_pre_release_override(&mut analysis, args)?;
             if cli.dry_run {
                 github::print_release_tag_dry_run(&repo, &config, &analysis)?;
