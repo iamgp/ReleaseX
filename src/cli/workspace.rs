@@ -2,21 +2,30 @@ use anyhow::{Context, Result};
 use console::style;
 
 use crate::{
-    analysis::{discover_uv_workspace, extract_dependency_names, read_current_version},
+    analysis::{
+        discover_cargo_workspace, discover_uv_workspace, extract_dependency_names,
+        read_current_version,
+    },
     cli::Cli,
-    config::Config,
+    config::{Config, Ecosystem},
+    ecosystem,
 };
 
 pub fn run(cli: &Cli) -> Result<()> {
     let config = Config::load(&cli.config_path())?;
     let repo_root = std::env::current_dir().context("failed to get current directory")?;
+    let active_ecosystem = ecosystem::detect(&repo_root, Some(&config));
 
-    let (member_roots, source) = resolve_workspace_members(&repo_root, &config);
+    let (member_roots, source) = resolve_workspace_members(&repo_root, &config, active_ecosystem);
 
     println!();
     println!("{}", style("relx workspace").bold());
     println!();
-    println!(" {} pyproject.toml", style("Workspace root:").cyan().bold());
+    println!(
+        " {} {}",
+        style("Workspace root:").cyan().bold(),
+        ecosystem::manifest_name(active_ecosystem)
+    );
     println!(" {} {}", style("Discovery:").cyan().bold(), source);
 
     if member_roots.is_empty() {
@@ -29,8 +38,8 @@ pub fn run(cli: &Cli) -> Result<()> {
     // Collect package info
     let mut members: Vec<MemberInfo> = Vec::new();
     for root in &member_roots {
-        let name = detect_name(&repo_root, root);
-        let version = detect_version(&repo_root, root);
+        let name = detect_name(&repo_root, root, active_ecosystem);
+        let version = detect_version(&repo_root, root, active_ecosystem);
         let deps = extract_dependency_names(&repo_root, root);
         members.push(MemberInfo {
             root: root.clone(),
@@ -94,6 +103,7 @@ struct MemberInfo {
 fn resolve_workspace_members(
     repo_root: &std::path::Path,
     config: &Config,
+    active_ecosystem: Ecosystem,
 ) -> (Vec<String>, String) {
     if !config.monorepo.packages.is_empty() {
         return (
@@ -109,12 +119,49 @@ fn resolve_workspace_members(
         );
     }
 
+    if active_ecosystem == Ecosystem::Rust
+        && let Some(roots) = discover_cargo_workspace(repo_root)
+    {
+        return (roots, "cargo workspace (workspace.members)".to_string());
+    }
+
     (Vec::new(), "none".to_string())
 }
 
-fn detect_name(repo_root: &std::path::Path, package_root: &str) -> String {
-    let pyproject = repo_root.join(package_root).join("pyproject.toml");
-    let contents = match std::fs::read_to_string(pyproject) {
+fn detect_name(repo_root: &std::path::Path, package_root: &str, ecosystem: Ecosystem) -> String {
+    let manifest = match ecosystem {
+        Ecosystem::Python => ("pyproject.toml", "project", "name"),
+        Ecosystem::Rust => ("Cargo.toml", "package", "name"),
+        Ecosystem::Go => ("go.mod", "", ""),
+    };
+
+    if ecosystem == Ecosystem::Go {
+        let go_mod = repo_root.join(package_root).join("go.mod");
+        let contents = match std::fs::read_to_string(go_mod) {
+            Ok(c) => c,
+            Err(_) => {
+                return package_root
+                    .rsplit('/')
+                    .next()
+                    .unwrap_or(package_root)
+                    .to_string();
+            }
+        };
+        return contents
+            .lines()
+            .find_map(|line| line.trim().strip_prefix("module ").map(str::trim))
+            .map(|module| module.rsplit('/').next().unwrap_or(module).to_string())
+            .unwrap_or_else(|| {
+                package_root
+                    .rsplit('/')
+                    .next()
+                    .unwrap_or(package_root)
+                    .to_string()
+            });
+    }
+
+    let file = repo_root.join(package_root).join(manifest.0);
+    let contents = match std::fs::read_to_string(file) {
         Ok(c) => c,
         Err(_) => {
             return package_root
@@ -136,9 +183,9 @@ fn detect_name(repo_root: &std::path::Path, package_root: &str) -> String {
     };
 
     parsed
-        .get("project")
+        .get(manifest.1)
         .and_then(|v| v.as_table())
-        .and_then(|t| t.get("name"))
+        .and_then(|t| t.get(manifest.2))
         .and_then(|v| v.as_str())
         .map(|s| s.to_string())
         .unwrap_or_else(|| {
@@ -150,11 +197,23 @@ fn detect_name(repo_root: &std::path::Path, package_root: &str) -> String {
         })
 }
 
-fn detect_version(repo_root: &std::path::Path, package_root: &str) -> String {
-    let version_file = crate::config::VersionFileConfig {
-        path: format!("{}/pyproject.toml", package_root),
-        key: Some("project.version".to_string()),
-        pattern: None,
+fn detect_version(repo_root: &std::path::Path, package_root: &str, ecosystem: Ecosystem) -> String {
+    let version_file = match ecosystem {
+        Ecosystem::Python => crate::config::VersionFileConfig {
+            path: format!("{}/pyproject.toml", package_root),
+            key: Some("project.version".to_string()),
+            pattern: None,
+        },
+        Ecosystem::Rust => crate::config::VersionFileConfig {
+            path: format!("{}/Cargo.toml", package_root),
+            key: Some("package.version".to_string()),
+            pattern: None,
+        },
+        Ecosystem::Go => crate::config::VersionFileConfig {
+            path: format!("{}/VERSION", package_root),
+            key: None,
+            pattern: Some("{version}".to_string()),
+        },
     };
 
     match read_current_version(repo_root, &[version_file]) {
