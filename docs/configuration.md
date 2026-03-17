@@ -5,6 +5,9 @@
 ## Full example
 
 ```toml
+[project]
+ecosystem = "python"
+
 [release]
 branch = "main"
 tag_prefix = "v"
@@ -92,6 +95,12 @@ version_range = ">=1.0.0,<2.0.0"
 - `changelog_file`: changelog path to prepend release notes into
 - `pr_title`: release PR title template, with `{version}` placeholder
 - `release_name`: GitHub Release title template, with `{tag_name}` and `{version}` placeholders
+
+## `[project]`
+
+- `ecosystem`: optional explicit ecosystem override; supported values are `python`, `rust`, and `go`
+
+If omitted, `relx` auto-detects the repository type from files such as `pyproject.toml`, `Cargo.toml`, and `go.mod`.
 
 ## `[versioning]`
 

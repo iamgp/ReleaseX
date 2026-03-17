@@ -22,7 +22,7 @@ cargo install --path .
 `relx` expects:
 
 - a Git repository
-- a Python project with a `pyproject.toml`, `setup.cfg`, or `__version__` pattern
+- a Python, Rust, or Go repository
 - commit messages that follow Conventional Commits
 - a GitHub remote for PR and release automation
 
@@ -42,9 +42,10 @@ relx init
 
 This creates a starter `relx.toml` by detecting:
 
+- the repository ecosystem (`python`, `rust`, or `go`)
 - the default release branch
 - GitHub owner and repository name
-- version-bearing files such as `pyproject.toml`, `setup.cfg`, and `__init__.py`
+- version-bearing files such as `pyproject.toml`, `Cargo.toml`, `__init__.py`, or a generated `VERSION` file for Go repositories
 
 Preview without writing:
 
