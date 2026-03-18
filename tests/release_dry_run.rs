@@ -50,7 +50,10 @@ fix = "Fixed"
         repo_path,
         &["git", "commit", "-m", "chore: initial release"],
     );
-    run(repo_path, &["git", "-c", "tag.gpgSign=false", "tag", "v0.1.0"]);
+    run(
+        repo_path,
+        &["git", "-c", "tag.gpgSign=false", "tag", "v0.1.0"],
+    );
 
     fs::write(repo_path.join("feature.txt"), "search support\n").expect("write feature");
     run(repo_path, &["git", "add", "."]);
@@ -133,7 +136,10 @@ feat = "Added"
         repo_path,
         &["git", "commit", "-m", "chore: initial release"],
     );
-    run(repo_path, &["git", "-c", "tag.gpgSign=false", "tag", "v0.1.0"]);
+    run(
+        repo_path,
+        &["git", "-c", "tag.gpgSign=false", "tag", "v0.1.0"],
+    );
 
     fs::write(repo_path.join("feature.txt"), "search support\n").expect("write feature");
     run(repo_path, &["git", "add", "."]);
@@ -231,7 +237,10 @@ repo = "demo"
         repo_path,
         &["git", "commit", "-m", "chore: initial release"],
     );
-    run(repo_path, &["git", "-c", "tag.gpgSign=false", "tag", "v0.1.0"]);
+    run(
+        repo_path,
+        &["git", "-c", "tag.gpgSign=false", "tag", "v0.1.0"],
+    );
 
     fs::write(
         repo_path.join("packages/core/src/core/feature.py"),
@@ -301,7 +310,10 @@ key = "project.version"
         repo_path,
         &["git", "commit", "-m", "chore: initial release"],
     );
-    run(repo_path, &["git", "-c", "tag.gpgSign=false", "tag", "v0.1.0"]);
+    run(
+        repo_path,
+        &["git", "-c", "tag.gpgSign=false", "tag", "v0.1.0"],
+    );
 
     fs::write(repo_path.join("feature.txt"), "search support\n").expect("write feature");
     run(repo_path, &["git", "add", "."]);
@@ -358,7 +370,10 @@ key = "project.version"
         repo_path,
         &["git", "commit", "-m", "chore: initial release"],
     );
-    run(repo_path, &["git", "-c", "tag.gpgSign=false", "tag", "v0.1.0"]);
+    run(
+        repo_path,
+        &["git", "-c", "tag.gpgSign=false", "tag", "v0.1.0"],
+    );
 
     let output = Command::new(env!("CARGO_BIN_EXE_relx"))
         .args(["release", "pending"])
@@ -408,7 +423,10 @@ key = "project.version"
         repo_path,
         &["git", "commit", "-m", "chore: initial release"],
     );
-    run(repo_path, &["git", "-c", "tag.gpgSign=false", "tag", "v0.1.0"]);
+    run(
+        repo_path,
+        &["git", "-c", "tag.gpgSign=false", "tag", "v0.1.0"],
+    );
 
     fs::write(repo_path.join("fix.txt"), "bugfix\n").expect("write fix");
     run(repo_path, &["git", "add", "."]);
