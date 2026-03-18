@@ -1,0 +1,41 @@
+name: Auto Release PR
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: autorelease-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  release-pr:
+    name: Create or update release PR
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install relx
+        uses: iamgp/ReleaseX@v0.4.0
+        with:
+          command: status
+          args: --help > /dev/null
+
+      - name: Create or update release PR
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          next_version="$(relx status --json | jq -r '.next_version // empty')"
+          if [ -n "$next_version" ]; then
+            relx release pr
+          else
+            echo "No releasable version bump detected on main."
+          fi
