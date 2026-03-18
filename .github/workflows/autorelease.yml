@@ -24,7 +24,7 @@ jobs:
           fetch-depth: 0
 
       - name: Install relx
-        uses: ReleaseX/action@v1
+        uses: iamgp/ReleaseX@v1
         with:
           command: status
           args: --help > /dev/null
