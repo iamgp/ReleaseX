@@ -1117,9 +1117,9 @@ mod tests {
             major: 1,
             minor: 2,
             patch: 0,
-            suffix: Some(crate::version::Suffix::Pre(crate::version::PreRelease::Beta(
-                2,
-            ))),
+            suffix: Some(crate::version::Suffix::Pre(
+                crate::version::PreRelease::Beta(2),
+            )),
         });
 
         let plan = build_release_pr_plan(&config, &analysis, "beta").expect("plan");
