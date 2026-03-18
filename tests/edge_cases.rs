@@ -117,10 +117,7 @@ key = "project.version"
 
     fs::write(repo_path.join("api.txt"), "redesigned API\n").expect("write api");
     run(repo_path, &["git", "add", "."]);
-    run(
-        repo_path,
-        &["git", "commit", "-m", "feat!: redesign API"],
-    );
+    run(repo_path, &["git", "commit", "-m", "feat!: redesign API"]);
 
     let output = Command::new(env!("CARGO_BIN_EXE_relx"))
         .args(["status", "--dry-run"])
@@ -195,10 +192,7 @@ fix = "Fixed"
 
     fs::write(repo_path.join("feature.rs"), "fn feature() {}\n").expect("write feature");
     run(repo_path, &["git", "add", "."]);
-    run(
-        repo_path,
-        &["git", "commit", "-m", "feat: add new feature"],
-    );
+    run(repo_path, &["git", "commit", "-m", "feat: add new feature"]);
 
     let output = Command::new(env!("CARGO_BIN_EXE_relx"))
         .args(["release", "pr", "--dry-run"])
@@ -217,10 +211,7 @@ fix = "Fixed"
         stdout.contains("Would push release branch `relx/release/v0.2.0`"),
         "{stdout}"
     );
-    assert!(
-        stdout.contains("Would create or update PR"),
-        "{stdout}"
-    );
+    assert!(stdout.contains("Would create or update PR"), "{stdout}");
 }
 
 #[test]
@@ -411,10 +402,7 @@ enabled = false
     )
     .expect("write config");
     run(repo_path, &["git", "add", "."]);
-    run(
-        repo_path,
-        &["git", "commit", "-m", "chore: initial commit"],
-    );
+    run(repo_path, &["git", "commit", "-m", "chore: initial commit"]);
 
     let output = Command::new(env!("CARGO_BIN_EXE_relx"))
         .args(["release", "publish"])
