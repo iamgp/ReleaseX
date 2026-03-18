@@ -63,34 +63,34 @@ jobs:
       - name: Prepare binary (unix)
         if: runner.os != 'Windows'
         run: |
-          cp target/${{ matrix.target }}/release/pyrls pyrls-${{ matrix.target }}
+          cp target/${{ matrix.target }}/release/relx relx-${{ matrix.target }}
 
       - name: Prepare binary (windows)
         if: runner.os == 'Windows'
         shell: bash
         run: |
-          cp target/${{ matrix.target }}/release/pyrls.exe pyrls-${{ matrix.target }}.exe
+          cp target/${{ matrix.target }}/release/relx.exe relx-${{ matrix.target }}.exe
 
       # Create a tarball for unix binaries (matches action.yml expectations)
       - name: Package tarball (unix)
         if: runner.os != 'Windows'
         run: |
-          cp target/${{ matrix.target }}/release/pyrls pyrls
-          tar -czf pyrls-${{ matrix.target }}.tar.gz pyrls
+          cp target/${{ matrix.target }}/release/relx relx
+          tar -czf relx-${{ matrix.target }}.tar.gz relx
 
       - name: Package zip (windows)
         if: runner.os == 'Windows'
         shell: bash
         run: |
-          cp target/${{ matrix.target }}/release/pyrls.exe pyrls.exe
-          7z a pyrls-${{ matrix.target }}.zip pyrls.exe
+          cp target/${{ matrix.target }}/release/relx.exe relx.exe
+          7z a relx-${{ matrix.target }}.zip relx.exe
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: pyrls-${{ matrix.target }}
+          name: relx-${{ matrix.target }}
           path: |
-            pyrls-${{ matrix.target }}*
+            relx-${{ matrix.target }}*
           if-no-files-found: error
 
   release:
