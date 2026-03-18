@@ -45,7 +45,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: ReleaseX/action@v1
+      - uses: iamgp/ReleaseX@v1
         with:
           command: release pr
         env:
@@ -58,7 +58,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
       - run: uv build
-      - uses: ReleaseX/action@v1
+      - uses: iamgp/ReleaseX@v1
         with:
           command: release publish
         env:

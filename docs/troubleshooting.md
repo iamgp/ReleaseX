@@ -69,14 +69,26 @@ api_base = "https://github.example.com/api/v3"
 
 Check:
 
-- `uv` or `twine` is installed if needed
-- `pyproject.toml` exists
-- your build backend works outside `relx`
+- Python: `uv` or `twine` is installed; `pyproject.toml` exists
+- Rust: `cargo` is installed; `Cargo.toml` exists
+- Go: `go` is installed; `go.mod` exists; `goreleaser` is available if publishing
 
-Try:
+Verify your build works outside `relx`:
 
 ```bash
+# Python
 uv build
+
+# Rust
+cargo build --locked
+
+# Go
+go build ./...
+```
+
+Then try:
+
+```bash
 relx release --snapshot
 ```
 

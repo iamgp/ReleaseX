@@ -6,9 +6,8 @@ ReleaseX now auto-detects Python, Rust, and Go repositories for config generatio
 
 Full documentation lives under [`docs/`](./docs/README.md).
 
-<!-- badges -->
-<!-- ![CI](https://github.com/OWNER/ReleaseX/actions/workflows/ci.yml/badge.svg) -->
-<!-- ![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg) -->
+![CI](https://github.com/iamgp/ReleaseX/actions/workflows/ci.yml/badge.svg)
+![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
 
 ## Features
 
@@ -28,8 +27,8 @@ Full documentation lives under [`docs/`](./docs/README.md).
 Download the latest binary for your platform:
 
 ```bash
-# Linux (x86_64)
-curl -L https://github.com/OWNER/ReleaseX/releases/latest/download/relx-linux-x86_64 -o relx
+# Linux (x86_64, static binary)
+curl -L https://github.com/iamgp/ReleaseX/releases/latest/download/relx-x86_64-unknown-linux-musl -o relx
 chmod +x relx
 sudo mv relx /usr/local/bin/
 ```
@@ -43,7 +42,7 @@ cargo install --path .
 Or build directly:
 
 ```bash
-git clone https://github.com/OWNER/ReleaseX.git
+git clone https://github.com/iamgp/ReleaseX.git
 cd ReleaseX
 cargo build --release
 # Binary at ./target/release/relx
@@ -236,7 +235,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: ReleaseX/action@v1
+      - uses: iamgp/ReleaseX@v1
         with:
           command: release pr
         env:
@@ -248,7 +247,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: ReleaseX/action@v1
+      - uses: iamgp/ReleaseX@v1
         with:
           command: release publish
         env:
@@ -293,7 +292,7 @@ Pre-release and finalization support is planned via `--pre-release` and `--final
 Enable monorepo mode to manage multiple Python packages in a single repository with independent versioning.
 
 ```toml
-# ReleaseX.toml
+# relx.toml
 [monorepo]
 enabled = true
 packages = [

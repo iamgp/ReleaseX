@@ -11,12 +11,12 @@ This directory contains the full product documentation for ReleaseX and the `rel
 - [Publishing](./publishing.md)
 - [Channels and Pre-releases](./channels.md)
 - [Monorepos and uv Workspaces](./workspaces.md)
-- [Rust and Go Roadmap](./ecosystem-roadmap.md)
+- [Ecosystem Architecture](./ecosystem-roadmap.md)
 - [Troubleshooting and Operations](./troubleshooting.md)
 
 ## What ReleaseX Does
 
-`relx` automates releases for Git repositories. Today it is strongest on Python workflows, and the planned ReleaseX expansion adds first-class Rust and Go ecosystem support on top of the same core release engine.
+`relx` automates releases for Git repositories with first-class support for Python, Rust, and Go ecosystems, all built on the same core release engine.
 
 The release model is intentionally conservative:
 
