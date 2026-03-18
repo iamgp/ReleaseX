@@ -285,7 +285,7 @@ relx supports PEP 440 pre-release versions:
 - Post-release: `1.2.0.post1`
 - Dev: `1.2.0.dev1`
 
-Pre-release and finalization support is planned via `--pre-release` and `--finalize` flags on the release commands (see the [PRD](prd.md) for roadmap details).
+Use `--pre-release` (`alpha`, `beta`, `rc`) and `--finalize` flags on the release commands to manage pre-release workflows.
 
 ## Monorepo Support
 
