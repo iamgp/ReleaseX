@@ -32,20 +32,9 @@ jobs:
       - name: Inspect release status
         id: status
         run: |
-          relx status --json > relx-status.json
-          python - <<'PY'
-          import json
-          import os
-
-          with open("relx-status.json", "r", encoding="utf-8") as handle:
-              status = json.load(handle)
-
-          next_version = status.get("next_version") or ""
-          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
-              output.write(f"next_version={next_version}\n")
-
-          print(f"next_version={next_version or 'none'}")
-          PY
+          next_version="$(relx status --json | jq -r '.next_version // empty')"
+          echo "next_version=$next_version" >> "$GITHUB_OUTPUT"
+          echo "next_version=${next_version:-none}"
 
       - name: Create or update release PR
         if: steps.status.outputs.next_version != ''
