@@ -72,9 +72,16 @@ pub struct ReleaseCommand {
 
 #[derive(Debug, Subcommand)]
 pub enum ReleaseSubcommand {
+    Pending(ReleasePendingArgs),
     Pr(PreReleaseArgs),
     Tag(PreReleaseArgs),
     Publish,
+}
+
+#[derive(Debug, Args)]
+pub struct ReleasePendingArgs {
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Debug, Args)]

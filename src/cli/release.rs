@@ -4,8 +4,11 @@ use crate::{
     analysis,
     changelog::PendingChangelog,
     channels,
-    cli::{Cli, PreReleaseArgs, PreReleaseKind, ReleaseCommand, ReleaseSubcommand},
+    cli::{
+        Cli, PreReleaseArgs, PreReleaseKind, ReleaseCommand, ReleasePendingArgs, ReleaseSubcommand,
+    },
     config::Config,
+    ecosystem,
     git::GitRepository,
     github, progress, publish,
     version::{BumpLevel, Version},
@@ -116,6 +119,47 @@ fn adjust_for_merged_release_pr(
     Ok(())
 }
 
+fn run_pending_check(
+    repo: &GitRepository,
+    config: &Config,
+    args: &ReleasePendingArgs,
+) -> Result<()> {
+    let mut analysis = analysis::analyze(repo, config)?;
+    let branch = repo
+        .current_branch()
+        .unwrap_or_else(|_| "unknown".to_string());
+    channels::apply_channel_to_analysis(repo, config, &mut analysis, &branch, None)?;
+
+    let pending = analysis.next_version.is_some();
+    let current_version = ecosystem::format_version(
+        &analysis.current_version,
+        ecosystem::config_ecosystem(config),
+    );
+    let next_version = analysis
+        .next_version
+        .as_ref()
+        .map(|version| ecosystem::format_version(version, ecosystem::config_ecosystem(config)));
+
+    if args.json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "pending": pending,
+                "branch": branch,
+                "current_version": current_version,
+                "next_version": next_version,
+                "bump": analysis.bump.as_str(),
+            }))?
+        );
+    } else if let Some(next_version) = &next_version {
+        println!("release pending: {}", next_version);
+    } else {
+        println!("no release pending");
+    }
+
+    std::process::exit(if pending { 0 } else { 1 });
+}
+
 pub fn run(cli: &Cli, command: &ReleaseCommand) -> Result<()> {
     if command.snapshot {
         return super::snapshot::run(cli);
@@ -134,6 +178,9 @@ pub fn run(cli: &Cli, command: &ReleaseCommand) -> Result<()> {
     };
 
     match &command.command {
+        ReleaseSubcommand::Pending(args) => {
+            run_pending_check(&repo, &config, args)?;
+        }
         ReleaseSubcommand::Pr(args) => {
             apply_channel_override(&repo, &config, &mut analysis, args)?;
             apply_pre_release_override(&mut analysis, args)?;
