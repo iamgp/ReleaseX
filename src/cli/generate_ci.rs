@@ -93,7 +93,7 @@ fn generate_github_workflow(
             yaml.push_str("        with:\n");
             yaml.push_str("          fetch-depth: 0\n");
             yaml.push('\n');
-            yaml.push_str("      - uses: ReleaseX/action@v1\n");
+            yaml.push_str("      - uses: iamgp/ReleaseX@v1\n");
             yaml.push_str("        with:\n");
             yaml.push_str("          command: release pr\n");
             yaml.push_str("        env:\n");
@@ -107,7 +107,7 @@ fn generate_github_workflow(
         yaml.push_str("        with:\n");
         yaml.push_str("          fetch-depth: 0\n");
         yaml.push('\n');
-        yaml.push_str("      - uses: ReleaseX/action@v1\n");
+        yaml.push_str("      - uses: iamgp/ReleaseX@v1\n");
         yaml.push_str("        with:\n");
         yaml.push_str("          command: release pr\n");
         yaml.push_str("        env:\n");
@@ -145,7 +145,7 @@ fn generate_github_workflow(
             yaml.push_str(&format!("      - run: {}\n", build_cmd));
         }
         yaml.push('\n');
-        yaml.push_str("      - uses: ReleaseX/action@v1\n");
+        yaml.push_str("      - uses: iamgp/ReleaseX@v1\n");
         yaml.push_str("        with:\n");
         yaml.push_str("          command: release publish\n");
         yaml.push_str("        env:\n");
