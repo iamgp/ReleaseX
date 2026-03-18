@@ -1,0 +1,37 @@
+name: Auto Tag Release
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: autotag-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tag-release:
+    name: Tag release and create GitHub Release
+    if: github.event.pull_request.merged == true && contains(github.event.pull_request.labels.*.name, 'autorelease: pending')
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install relx
+        uses: iamgp/ReleaseX@v0.4.0
+        with:
+          command: status
+          args: --help > /dev/null
+
+      - name: Tag release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: relx release tag
