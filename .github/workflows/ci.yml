@@ -5,6 +5,10 @@ on:
     branches: [main]
   pull_request:
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   check:
     name: Check, lint & test
@@ -21,6 +25,12 @@ jobs:
 
       - name: Cache dependencies
         uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ci-rust-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+          cache-on-failure: true
+
+      - name: Fetch dependencies
+        run: cargo fetch --locked
 
       - name: Check formatting
         run: cargo fmt --check

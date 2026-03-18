@@ -50,7 +50,10 @@ fix = "Fixed"
         repo_path,
         &["git", "commit", "-m", "chore: initial release"],
     );
-    run(repo_path, &["git", "tag", "v0.1.0"]);
+    run(
+        repo_path,
+        &["git", "-c", "tag.gpgSign=false", "tag", "v0.1.0"],
+    );
 
     fs::write(repo_path.join("feature.txt"), "search support\n").expect("write feature");
     run(repo_path, &["git", "add", "."]);
@@ -133,7 +136,10 @@ feat = "Added"
         repo_path,
         &["git", "commit", "-m", "chore: initial release"],
     );
-    run(repo_path, &["git", "tag", "v0.1.0"]);
+    run(
+        repo_path,
+        &["git", "-c", "tag.gpgSign=false", "tag", "v0.1.0"],
+    );
 
     fs::write(repo_path.join("feature.txt"), "search support\n").expect("write feature");
     run(repo_path, &["git", "add", "."]);
@@ -231,7 +237,10 @@ repo = "demo"
         repo_path,
         &["git", "commit", "-m", "chore: initial release"],
     );
-    run(repo_path, &["git", "tag", "v0.1.0"]);
+    run(
+        repo_path,
+        &["git", "-c", "tag.gpgSign=false", "tag", "v0.1.0"],
+    );
 
     fs::write(
         repo_path.join("packages/core/src/core/feature.py"),
@@ -265,6 +274,174 @@ repo = "demo"
         stdout.contains("Would create or update PR `chore(release): 1 packages package release set` in acme/demo"),
         "{stdout}"
     );
+}
+
+#[test]
+fn release_pending_exits_zero_when_release_is_pending() {
+    let repo_dir = tempdir().expect("tempdir");
+    let repo_path = repo_dir.path();
+
+    run(repo_path, &["git", "init", "-b", "main"]);
+    run(repo_path, &["git", "config", "user.name", "Relx Test"]);
+    run(
+        repo_path,
+        &["git", "config", "user.email", "relx@example.com"],
+    );
+
+    fs::write(
+        repo_path.join("pyproject.toml"),
+        "[project]\nname = \"demo\"\nversion = \"0.1.0\"\n",
+    )
+    .expect("write pyproject");
+    fs::write(
+        repo_path.join("relx.toml"),
+        r#"[release]
+branch = "main"
+tag_prefix = "v"
+
+[[version_files]]
+path = "pyproject.toml"
+key = "project.version"
+"#,
+    )
+    .expect("write config");
+    run(repo_path, &["git", "add", "."]);
+    run(
+        repo_path,
+        &["git", "commit", "-m", "chore: initial release"],
+    );
+    run(
+        repo_path,
+        &["git", "-c", "tag.gpgSign=false", "tag", "v0.1.0"],
+    );
+
+    fs::write(repo_path.join("feature.txt"), "search support\n").expect("write feature");
+    run(repo_path, &["git", "add", "."]);
+    run(
+        repo_path,
+        &["git", "commit", "-m", "feat: add search support"],
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_relx"))
+        .args(["release", "pending"])
+        .current_dir(repo_path)
+        .output()
+        .expect("run relx release pending");
+
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    assert!(
+        String::from_utf8_lossy(&output.stdout).contains("release pending: 0.2.0"),
+        "{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+}
+
+#[test]
+fn release_pending_exits_one_when_no_release_is_pending() {
+    let repo_dir = tempdir().expect("tempdir");
+    let repo_path = repo_dir.path();
+
+    run(repo_path, &["git", "init", "-b", "main"]);
+    run(repo_path, &["git", "config", "user.name", "Relx Test"]);
+    run(
+        repo_path,
+        &["git", "config", "user.email", "relx@example.com"],
+    );
+
+    fs::write(
+        repo_path.join("pyproject.toml"),
+        "[project]\nname = \"demo\"\nversion = \"0.1.0\"\n",
+    )
+    .expect("write pyproject");
+    fs::write(
+        repo_path.join("relx.toml"),
+        r#"[release]
+branch = "main"
+tag_prefix = "v"
+
+[[version_files]]
+path = "pyproject.toml"
+key = "project.version"
+"#,
+    )
+    .expect("write config");
+    run(repo_path, &["git", "add", "."]);
+    run(
+        repo_path,
+        &["git", "commit", "-m", "chore: initial release"],
+    );
+    run(
+        repo_path,
+        &["git", "-c", "tag.gpgSign=false", "tag", "v0.1.0"],
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_relx"))
+        .args(["release", "pending"])
+        .current_dir(repo_path)
+        .output()
+        .expect("run relx release pending");
+
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    assert!(
+        String::from_utf8_lossy(&output.stdout).contains("no release pending"),
+        "{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+}
+
+#[test]
+fn release_pending_json_reports_pending_state() {
+    let repo_dir = tempdir().expect("tempdir");
+    let repo_path = repo_dir.path();
+
+    run(repo_path, &["git", "init", "-b", "main"]);
+    run(repo_path, &["git", "config", "user.name", "Relx Test"]);
+    run(
+        repo_path,
+        &["git", "config", "user.email", "relx@example.com"],
+    );
+
+    fs::write(
+        repo_path.join("pyproject.toml"),
+        "[project]\nname = \"demo\"\nversion = \"0.1.0\"\n",
+    )
+    .expect("write pyproject");
+    fs::write(
+        repo_path.join("relx.toml"),
+        r#"[release]
+branch = "main"
+tag_prefix = "v"
+
+[[version_files]]
+path = "pyproject.toml"
+key = "project.version"
+"#,
+    )
+    .expect("write config");
+    run(repo_path, &["git", "add", "."]);
+    run(
+        repo_path,
+        &["git", "commit", "-m", "chore: initial release"],
+    );
+    run(
+        repo_path,
+        &["git", "-c", "tag.gpgSign=false", "tag", "v0.1.0"],
+    );
+
+    fs::write(repo_path.join("fix.txt"), "bugfix\n").expect("write fix");
+    run(repo_path, &["git", "add", "."]);
+    run(repo_path, &["git", "commit", "-m", "fix: patch it"]);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_relx"))
+        .args(["release", "pending", "--json"])
+        .current_dir(repo_path)
+        .output()
+        .expect("run relx release pending --json");
+
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("\"pending\": true"), "{stdout}");
+    assert!(stdout.contains("\"next_version\": \"0.1.1\""), "{stdout}");
 }
 
 fn run(repo_path: &std::path::Path, args: &[&str]) {

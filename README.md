@@ -191,6 +191,15 @@ relx release pr
 relx release pr --dry-run
 ```
 
+#### `relx release pending`
+
+Check whether the current branch has a releasable version bump pending. This is useful in CI when you want to skip release automation cleanly on no-op merges.
+
+```bash
+relx release pending
+relx release pending --json
+```
+
 #### `relx release tag`
 
 Create a git tag and GitHub Release with the changelog section as release notes. Typically called by CI after the release PR is merged. Labels the merged PR with `autorelease: tagged`.

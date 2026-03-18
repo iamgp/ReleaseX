@@ -112,6 +112,20 @@ relx release pr --channel beta
 relx release pr --finalize
 ```
 
+### `relx release pending`
+
+Check whether the current branch has a releasable version bump pending.
+
+```bash
+relx release pending
+relx release pending --json
+```
+
+Exit codes:
+
+- `0`: a release is pending
+- `1`: no release is pending
+
 ### `relx release tag`
 
 Create the git tag and GitHub Release.

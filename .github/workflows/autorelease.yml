@@ -1,0 +1,40 @@
+name: Auto Release PR
+
+on:
+  push:
+    branches: [beta]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: autorelease-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  release-pr:
+    name: Create or update release PR
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install relx
+        uses: ReleaseX/action@v1
+        with:
+          command: status
+          args: --help > /dev/null
+
+      - name: Create or update release PR
+        run: |
+          if relx release pending > /dev/null; then
+            relx release pr
+          else
+            echo "No releasable version bump detected on beta."
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
