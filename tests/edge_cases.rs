@@ -1,5 +1,6 @@
 use std::{fs, process::Command};
 
+use serde_json::Value;
 use tempfile::tempdir;
 
 fn run(repo_path: &std::path::Path, args: &[&str]) {
@@ -419,5 +420,180 @@ enabled = false
     assert!(
         stderr.contains("publish flow is disabled"),
         "expected 'publish flow is disabled' error, got: {stderr}"
+    );
+}
+
+#[test]
+fn release_pr_dry_run_changelog_includes_version_heading() {
+    let repo_dir = tempdir().expect("tempdir");
+    let repo_path = repo_dir.path();
+
+    run(repo_path, &["git", "init", "-b", "main"]);
+    run(repo_path, &["git", "config", "user.name", "Relx Test"]);
+    run(
+        repo_path,
+        &["git", "config", "user.email", "relx@example.com"],
+    );
+    run(
+        repo_path,
+        &[
+            "git",
+            "remote",
+            "add",
+            "origin",
+            "https://github.com/acme/demo.git",
+        ],
+    );
+
+    fs::write(
+        repo_path.join("pyproject.toml"),
+        "[project]\nname = \"demo\"\nversion = \"0.1.0\"\n",
+    )
+    .expect("write pyproject");
+    fs::write(
+        repo_path.join("relx.toml"),
+        r#"[release]
+branch = "main"
+tag_prefix = "v"
+changelog_file = "CHANGELOG.md"
+
+[[version_files]]
+path = "pyproject.toml"
+key = "project.version"
+
+[changelog.sections]
+feat = "Added"
+fix = "Fixed"
+"#,
+    )
+    .expect("write config");
+    fs::write(repo_path.join("CHANGELOG.md"), "# Changelog\n").expect("write changelog");
+    run(repo_path, &["git", "add", "."]);
+    run(
+        repo_path,
+        &["git", "commit", "-m", "chore: initial release"],
+    );
+    run(repo_path, &["git", "tag", "v0.1.0"]);
+
+    fs::write(repo_path.join("search.py"), "def search(): pass\n").expect("write search");
+    run(repo_path, &["git", "add", "."]);
+    run(repo_path, &["git", "commit", "-m", "feat: add search"]);
+
+    fs::write(repo_path.join("validate.py"), "def validate(): pass\n").expect("write validate");
+    run(repo_path, &["git", "add", "."]);
+    run(
+        repo_path,
+        &["git", "commit", "-m", "fix: handle empty input"],
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_relx"))
+        .args(["release", "pr", "--dry-run"])
+        .current_dir(repo_path)
+        .output()
+        .expect("run relx release pr");
+
+    assert!(
+        output.status.success(),
+        "release pr failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("0.2.0"),
+        "expected version heading with 0.2.0, got: {stdout}"
+    );
+    assert!(
+        stdout.contains("Added"),
+        "expected 'Added' section, got: {stdout}"
+    );
+    assert!(
+        stdout.contains("Fixed"),
+        "expected 'Fixed' section, got: {stdout}"
+    );
+}
+
+#[test]
+fn status_json_outputs_valid_json_with_expected_fields() {
+    let repo_dir = tempdir().expect("tempdir");
+    let repo_path = repo_dir.path();
+
+    run(repo_path, &["git", "init", "-b", "main"]);
+    run(repo_path, &["git", "config", "user.name", "Relx Test"]);
+    run(
+        repo_path,
+        &["git", "config", "user.email", "relx@example.com"],
+    );
+    run(
+        repo_path,
+        &[
+            "git",
+            "remote",
+            "add",
+            "origin",
+            "https://github.com/acme/demo.git",
+        ],
+    );
+
+    fs::write(
+        repo_path.join("pyproject.toml"),
+        "[project]\nname = \"demo\"\nversion = \"0.1.0\"\n",
+    )
+    .expect("write pyproject");
+    fs::write(
+        repo_path.join("relx.toml"),
+        r#"[release]
+branch = "main"
+tag_prefix = "v"
+
+[versioning]
+strategy = "conventional_commits"
+
+[[version_files]]
+path = "pyproject.toml"
+key = "project.version"
+"#,
+    )
+    .expect("write config");
+    run(repo_path, &["git", "add", "."]);
+    run(
+        repo_path,
+        &["git", "commit", "-m", "chore: initial release"],
+    );
+    run(repo_path, &["git", "tag", "v0.1.0"]);
+
+    fs::write(repo_path.join("feature.txt"), "new feature\n").expect("write feature");
+    run(repo_path, &["git", "add", "."]);
+    run(repo_path, &["git", "commit", "-m", "feat: add new feature"]);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_relx"))
+        .args(["status", "--json"])
+        .current_dir(repo_path)
+        .env_remove("GITHUB_TOKEN")
+        .output()
+        .expect("run relx status --json");
+
+    assert!(
+        output.status.success(),
+        "status --json failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: Value = serde_json::from_str(&stdout)
+        .unwrap_or_else(|e| panic!("invalid JSON: {e}\nstdout: {stdout}"));
+
+    assert_eq!(json["current_version"].as_str(), Some("0.1.0"));
+    assert_eq!(json["next_version"].as_str(), Some("0.2.0"));
+    assert_eq!(json["bump"].as_str(), Some("minor"));
+    assert!(
+        json["commit_count"].as_u64().unwrap_or(0) > 0,
+        "expected commit_count > 0, got: {}",
+        json["commit_count"]
+    );
+    assert!(
+        json["packages"].is_array(),
+        "expected packages to be an array, got: {}",
+        json["packages"]
     );
 }
