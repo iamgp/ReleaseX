@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.0.1] - 2026-03-18
+
+### Fixed
+- sync lockfile after 1.0.0 release (#16)
+
+### Contributors
+Thanks to our contributors for this release:
+- @iamgp (1 commit)
+
 ## [1.0.0] - 2026-03-18
 
 ### Added
