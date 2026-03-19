@@ -29,7 +29,18 @@ jobs:
           command: status
           args: --help > /dev/null
 
+      - name: Check if release commit
+        id: check
+        run: |
+          msg="$(git log -1 --format='%s')"
+          if echo "$msg" | grep -qP '^chore\(release\):'; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Create or update release PR
+        if: steps.check.outputs.skip != 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |

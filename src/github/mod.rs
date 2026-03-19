@@ -8,7 +8,8 @@ use tempfile::tempdir;
 use crate::{
     analysis::{self, ReleaseAnalysis},
     changelog, channels,
-    config::{Config, GitHubConfig},
+    config::{Config, Ecosystem, GitHubConfig},
+    ecosystem,
     git::{GitRepository, run_git},
 };
 
@@ -30,6 +31,36 @@ fn release_commit_args(config: &Config, message: &str) -> Vec<String> {
         "-m".to_string(),
         message.to_string(),
     ]
+}
+
+fn refresh_lockfile(clone_path: &Path, config: &Config) -> Result<()> {
+    let detected = ecosystem::detect(clone_path, Some(config));
+    match detected {
+        Ecosystem::Rust if clone_path.join("Cargo.lock").exists() => {
+            let output = std::process::Command::new("cargo")
+                .args(["generate-lockfile"])
+                .current_dir(clone_path)
+                .output()
+                .context("failed to run cargo generate-lockfile")?;
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                bail!("cargo generate-lockfile failed: {}", stderr.trim());
+            }
+        }
+        Ecosystem::Python if clone_path.join("uv.lock").exists() => {
+            let output = std::process::Command::new("uv")
+                .args(["lock"])
+                .current_dir(clone_path)
+                .output()
+                .context("failed to run uv lock")?;
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                bail!("uv lock failed: {}", stderr.trim());
+            }
+        }
+        _ => {}
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -210,6 +241,7 @@ pub fn execute_release_pr(
         &clone_path.join(&config.release.changelog_file),
         &plan.release_notes,
     )?;
+    refresh_lockfile(&clone_path, config)?;
 
     run_git(&clone_path, ["add", "."])?;
     let diff = run_git(&clone_path, ["status", "--short"])?;
@@ -322,6 +354,7 @@ fn execute_monorepo_unified_pr(
         &clone_path.join(&config.release.changelog_file),
         &plan.release_notes,
     )?;
+    refresh_lockfile(&clone_path, config)?;
 
     run_git(&clone_path, ["add", "."])?;
     let diff = run_git(&clone_path, ["status", "--short"])?;
@@ -413,6 +446,7 @@ fn execute_monorepo_per_package_pr(
         format!("{}/{}", package.root, config.release.changelog_file)
     };
     changelog::prepend_release_notes(&clone_path.join(&changelog_path), &plan.release_notes)?;
+    refresh_lockfile(&clone_path, config)?;
 
     run_git(&clone_path, ["add", "."])?;
     let diff = run_git(&clone_path, ["status", "--short"])?;
