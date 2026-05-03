@@ -119,25 +119,50 @@ pub fn validate_root_wheel_metadata(
     }
 
     let lower_metadata = metadata.to_ascii_lowercase();
-    for extra in extras {
-        for (package, version) in selected_versions {
-            let expected_dependency = format!("{package}>={version}");
-            let expected_extra_single = format!("extra == '{extra}'");
-            let expected_extra_double = format!("extra == \"{extra}\"");
-            let has_dependency = lower_metadata.lines().any(|line| {
-                let line = line.to_ascii_lowercase();
-                line.starts_with("requires-dist:")
-                    && line.contains(&expected_dependency.to_ascii_lowercase())
-                    && (line.contains(&expected_extra_single.to_ascii_lowercase())
-                        || line.contains(&expected_extra_double.to_ascii_lowercase()))
-            });
-            if !has_dependency {
-                bail!("missing wheel metadata dependency {expected_dependency} for extra {extra}");
-            }
+    for line in lower_metadata.lines() {
+        let Some(package) = metadata_requirement_package(line) else {
+            continue;
+        };
+        let Some(version) = selected_versions.get(package) else {
+            continue;
+        };
+        let Some(extra) = extras
+            .iter()
+            .find(|extra| metadata_line_matches_extra(line, extra))
+        else {
+            continue;
+        };
+        let expected_dependency = format!("{package}>={version}");
+        if !line.contains(&expected_dependency.to_ascii_lowercase()) {
+            bail!("missing wheel metadata dependency {expected_dependency} for extra {extra}");
         }
     }
 
     Ok(())
+}
+
+fn metadata_requirement_package(line: &str) -> Option<&str> {
+    let requirement = line
+        .trim_start()
+        .strip_prefix("requires-dist:")?
+        .trim_start();
+    let name_end = requirement
+        .char_indices()
+        .find_map(|(index, ch)| {
+            matches!(ch, '[' | ' ' | '\t' | '<' | '>' | '=' | '!' | '~' | ';').then_some(index)
+        })
+        .unwrap_or(requirement.len());
+    if name_end == 0 {
+        None
+    } else {
+        Some(&requirement[..name_end])
+    }
+}
+
+fn metadata_line_matches_extra(line: &str, extra: &str) -> bool {
+    let expected_extra_single = format!("extra == '{extra}'").to_ascii_lowercase();
+    let expected_extra_double = format!("extra == \"{extra}\"").to_ascii_lowercase();
+    line.contains(&expected_extra_single) || line.contains(&expected_extra_double)
 }
 
 pub fn build_explicit_install_command(
@@ -233,6 +258,30 @@ Requires-Dist: phlo-iceberg>=0.3.1b1; extra == 'defaults'
 
         validate_root_wheel_metadata(metadata, &packages, &["defaults".to_string()])
             .expect("metadata should validate");
+    }
+
+    #[test]
+    fn validates_only_workspace_packages_declared_for_each_configured_extra() {
+        let metadata = r#"
+Metadata-Version: 2.3
+Name: phlo
+Version: 0.8.1b5
+Provides-Extra: defaults
+Requires-Dist: phlo-iceberg>=0.3.1b1; extra == 'defaults'
+Provides-Extra: core-services
+Requires-Dist: phlo-minio>=0.3.1b1; extra == 'core-services'
+"#;
+        let packages = BTreeMap::from([
+            ("phlo-iceberg".to_string(), "0.3.1b1".to_string()),
+            ("phlo-minio".to_string(), "0.3.1b1".to_string()),
+        ]);
+
+        validate_root_wheel_metadata(
+            metadata,
+            &packages,
+            &["defaults".to_string(), "core-services".to_string()],
+        )
+        .expect("metadata should validate");
     }
 
     #[test]

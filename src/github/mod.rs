@@ -265,15 +265,23 @@ fn verify_prerelease_workspace(
 }
 
 fn python_prerelease_workspace_applies(config: &Config, analysis: &ReleaseAnalysis) -> bool {
+    let selected_packages = analysis.package_plan.selected_packages();
+    let is_prerelease = selected_packages.iter().any(|package| {
+        package
+            .next_version
+            .as_ref()
+            .is_some_and(|version| matches!(version.suffix, Some(Suffix::Pre(_))))
+    });
+    let is_finalize = selected_packages
+        .iter()
+        .any(|package| package.selection_reason == "finalize prerelease package");
+
     config.prerelease.enabled
         && config.project.ecosystem == Some(Ecosystem::Python)
         && config.monorepo.enabled
         && analysis.package_plan.release_mode == "release_set"
-        && analysis
-            .package_plan
-            .selected_packages()
-            .into_iter()
-            .any(|package| package.root == ".")
+        && (is_prerelease || is_finalize)
+        && selected_packages.iter().any(|package| package.root == ".")
 }
 
 fn selected_workspace_package_versions(analysis: &ReleaseAnalysis) -> BTreeMap<String, String> {
@@ -2001,6 +2009,38 @@ mod tests {
             plan.body
         );
         assert!(!plan.body.contains("--prerelease explicit"));
+    }
+
+    #[test]
+    fn prerelease_workspace_hooks_skip_normal_stable_release_sets() {
+        let config: Config = toml::from_str(
+            r#"
+            [project]
+            ecosystem = "python"
+
+            [monorepo]
+            enabled = true
+            release_mode = "release_set"
+
+            [prerelease]
+            enabled = true
+            "#,
+        )
+        .expect("config");
+        let mut analysis = prerelease_release_set_analysis(false);
+        analysis.next_version.as_mut().expect("next version").suffix = None;
+        for package in &mut analysis.package_plan.packages {
+            package
+                .next_version
+                .as_mut()
+                .expect("package next version")
+                .suffix = None;
+            package.selection_reason = "changed since latest tag".to_string();
+        }
+
+        assert!(!super::python_prerelease_workspace_applies(
+            &config, &analysis
+        ));
     }
 
     #[test]
