@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.3.0] - 2026-05-03
+
+### Added
+- add python prerelease workspace workflow (#40)
+
+### Contributors
+Thanks to our contributors for this release:
+- @iamgp (1 commit)
+
 ## [1.2.0] - 2026-03-31
 
 ### Added
