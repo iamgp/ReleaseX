@@ -12,6 +12,11 @@ use crate::{
     config::{Config, Ecosystem, GitHubConfig, VersionFileConfig},
     ecosystem,
     git::{GitRepository, run_git},
+    prerelease::{
+        PrereleasePackage, build_explicit_install_command, sync_root_python_workspace_dependencies,
+        validate_root_wheel_metadata,
+    },
+    version::Suffix,
 };
 
 fn authenticated_url(origin_url: &str, token: &str) -> String {
@@ -180,6 +185,182 @@ fn sync_cargo_lock_package_versions(
     Ok(())
 }
 
+fn sync_prerelease_workspace_dependencies(
+    repo_root: &Path,
+    config: &Config,
+    analysis: &ReleaseAnalysis,
+) -> Result<()> {
+    if !python_prerelease_workspace_applies(config, analysis) {
+        return Ok(());
+    }
+
+    let selected_versions = selected_workspace_package_versions(analysis);
+    if selected_versions.is_empty() {
+        return Ok(());
+    }
+
+    sync_root_python_workspace_dependencies(
+        repo_root,
+        &selected_versions,
+        config.prerelease.workspace.sync_root_dependencies,
+        &config.prerelease.workspace.sync_root_extras,
+    )?;
+
+    Ok(())
+}
+
+fn verify_prerelease_workspace(
+    repo_root: &Path,
+    config: &Config,
+    analysis: &ReleaseAnalysis,
+) -> Result<()> {
+    if !python_prerelease_workspace_applies(config, analysis) {
+        return Ok(());
+    }
+
+    let selected_versions = selected_workspace_package_versions(analysis);
+    if selected_versions.is_empty() {
+        return Ok(());
+    }
+
+    let build_dist = tempdir().context("failed to create prerelease verification dist dir")?;
+    let dist_path = if config.prerelease.verify.build {
+        run_uv_build(repo_root, ".", build_dist.path())?;
+        for package in analysis
+            .package_plan
+            .selected_packages()
+            .into_iter()
+            .filter(|package| package.root != ".")
+        {
+            run_uv_build(repo_root, &package.root, build_dist.path())?;
+        }
+        build_dist.path().to_path_buf()
+    } else {
+        repo_root.join(&config.publish.dist_dir)
+    };
+
+    if config.prerelease.verify.inspect_wheel_metadata
+        && !config.prerelease.workspace.sync_root_extras.is_empty()
+    {
+        let root = analysis
+            .package_plan
+            .selected_packages()
+            .into_iter()
+            .find(|package| package.root == ".")
+            .context("prerelease workspace verification requires selected root package")?;
+        let version = root
+            .next_version
+            .as_ref()
+            .context("selected root package has no next version")?;
+        let wheel = find_wheel(&dist_path, &root.name, &version.to_string())?;
+        let metadata = read_wheel_metadata(&wheel)?;
+        validate_root_wheel_metadata(
+            &metadata,
+            &selected_versions,
+            &config.prerelease.workspace.sync_root_extras,
+        )?;
+    }
+
+    Ok(())
+}
+
+fn python_prerelease_workspace_applies(config: &Config, analysis: &ReleaseAnalysis) -> bool {
+    config.prerelease.enabled
+        && config.project.ecosystem == Some(Ecosystem::Python)
+        && config.monorepo.enabled
+        && analysis.package_plan.release_mode == "release_set"
+        && analysis
+            .package_plan
+            .selected_packages()
+            .into_iter()
+            .any(|package| package.root == ".")
+}
+
+fn selected_workspace_package_versions(analysis: &ReleaseAnalysis) -> BTreeMap<String, String> {
+    analysis
+        .package_plan
+        .selected_packages()
+        .into_iter()
+        .filter(|package| package.root != ".")
+        .filter_map(|package| {
+            let version = package.next_version.as_ref()?;
+            Some((package.name.clone(), version.to_string()))
+        })
+        .collect()
+}
+
+fn run_uv_build(repo_root: &Path, package_root: &str, dist_dir: &Path) -> Result<()> {
+    let mut command = std::process::Command::new("uv");
+    command.arg("build");
+    if package_root != "." {
+        command.arg("--directory").arg(package_root);
+    }
+    command.arg("--out-dir").arg(dist_dir);
+    let output = command
+        .current_dir(repo_root)
+        .output()
+        .with_context(|| format!("failed to run uv build for {package_root}"))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        bail!("uv build failed for {package_root}: {}", stderr.trim());
+    }
+    Ok(())
+}
+
+fn find_wheel(dist_dir: &Path, package_name: &str, version: &str) -> Result<std::path::PathBuf> {
+    let normalized = normalize_wheel_distribution(package_name);
+    let prefix = format!("{normalized}-{version}-");
+    let entries = fs::read_dir(dist_dir)
+        .with_context(|| format!("failed to read build artifacts from {}", dist_dir.display()))?;
+    for entry in entries {
+        let entry = entry?;
+        let path = entry.path();
+        let Some(file_name) = path.file_name().and_then(|value| value.to_str()) else {
+            continue;
+        };
+        if file_name.starts_with(&prefix) && file_name.ends_with(".whl") {
+            return Ok(path);
+        }
+    }
+
+    bail!(
+        "no root wheel found for {package_name} {version} in {}",
+        dist_dir.display()
+    )
+}
+
+fn normalize_wheel_distribution(package_name: &str) -> String {
+    package_name
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || ch == '_' {
+                ch.to_ascii_lowercase()
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
+fn read_wheel_metadata(wheel_path: &Path) -> Result<String> {
+    let output = std::process::Command::new("unzip")
+        .arg("-p")
+        .arg(wheel_path)
+        .arg("*.dist-info/METADATA")
+        .output()
+        .with_context(|| format!("failed to inspect {}", wheel_path.display()))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        bail!(
+            "failed to read wheel metadata from {}: {}",
+            wheel_path.display(),
+            stderr.trim()
+        );
+    }
+
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RepoRef {
     pub owner: String,
@@ -240,9 +421,10 @@ pub fn build_release_pr_plan(
         &analysis.changelog,
         &config.changelog.first_contribution_emoji,
     );
+    let prerelease_body = prerelease_pr_body(config, analysis)?;
     let body = format!(
         "## Release summary\n\n{release_notes}\n\n## Maintainer checklist\n- [ ] Review version bump\n- [ ] Review changelog\n- [ ] Merge to cut the release"
-    );
+    ) + &prerelease_body;
 
     Ok(ReleasePrPlan {
         version,
@@ -253,6 +435,94 @@ pub fn build_release_pr_plan(
         labels: vec![config.github.pending_label.clone()],
         release_notes,
     })
+}
+
+fn prerelease_pr_body(config: &Config, analysis: &ReleaseAnalysis) -> Result<String> {
+    if !config.prerelease.enabled || analysis.package_plan.release_mode != "release_set" {
+        return Ok(String::new());
+    }
+
+    let packages = selected_prerelease_packages(analysis);
+    if packages.is_empty() {
+        return Ok(String::new());
+    }
+
+    let is_beta = analysis
+        .package_plan
+        .selected_packages()
+        .iter()
+        .any(|package| {
+            package
+                .next_version
+                .as_ref()
+                .is_some_and(|version| matches!(version.suffix, Some(Suffix::Pre(_))))
+        });
+    let is_finalize = !is_beta
+        && analysis
+            .package_plan
+            .selected_packages()
+            .iter()
+            .any(|package| package.selection_reason == "finalize prerelease package");
+
+    if !is_beta && !is_finalize {
+        return Ok(String::new());
+    }
+
+    let heading = if is_finalize {
+        "Finalize Prerelease"
+    } else {
+        "Prerelease"
+    };
+    let mut body = format!("\n\n## {heading}\n\n");
+    if is_beta {
+        let root = packages
+            .iter()
+            .find(|package| package.root == ".")
+            .context("prerelease release set has no root package")?;
+        body.push_str(&format!("Beta release: `{}`\n\n", root.version));
+    }
+
+    body.push_str("## Packages\n\n| Package | Version | Reason |\n|---|---:|---|\n");
+    for package in &packages {
+        body.push_str(&format!(
+            "| {} | {} | {} |\n",
+            package.name, package.version, package.reason
+        ));
+    }
+
+    if is_beta
+        && config.prerelease.verify.emit_install_command
+        && !config.prerelease.workspace.sync_root_extras.is_empty()
+    {
+        let root = packages
+            .iter()
+            .find(|package| package.root == ".")
+            .context("prerelease release set has no root package")?;
+        let extra = &config.prerelease.workspace.sync_root_extras[0];
+        let command = build_explicit_install_command(&root.name, &root.version, extra, &packages);
+        body.push_str("\n## PyPI Verification Command\n\n```bash\n");
+        body.push_str(&command);
+        body.push_str("\n```\n");
+    }
+
+    Ok(body)
+}
+
+fn selected_prerelease_packages(analysis: &ReleaseAnalysis) -> Vec<PrereleasePackage> {
+    analysis
+        .package_plan
+        .selected_packages()
+        .into_iter()
+        .filter_map(|package| {
+            let version = package.next_version.as_ref()?;
+            Some(PrereleasePackage {
+                name: package.name.clone(),
+                version: version.to_string(),
+                root: package.root.clone(),
+                reason: package.selection_reason.clone(),
+            })
+        })
+        .collect()
 }
 
 pub fn build_release_tag_plan(
@@ -485,6 +755,7 @@ fn execute_monorepo_unified_pr(
             .context("selected package has no next version")?;
         analysis::update_version_files(&clone_path, &package.version_files, next_version)?;
     }
+    sync_prerelease_workspace_dependencies(&clone_path, config, analysis)?;
     changelog::prepend_release_notes(
         &clone_path.join(&config.release.changelog_file),
         &plan.release_notes,
@@ -493,7 +764,10 @@ fn execute_monorepo_unified_pr(
         .iter()
         .flat_map(|package| package.version_files.iter().cloned())
         .collect::<Vec<_>>();
-    refresh_lockfile(&clone_path, config, &version_files)?;
+    if !python_prerelease_workspace_applies(config, analysis) || config.prerelease.verify.lock {
+        refresh_lockfile(&clone_path, config, &version_files)?;
+    }
+    verify_prerelease_workspace(&clone_path, config, analysis)?;
 
     run_git(&clone_path, ["add", "."])?;
     let diff = run_git(&clone_path, ["status", "--short"])?;
@@ -1303,7 +1577,7 @@ mod tests {
         changelog::PendingChangelog,
         config::Config,
         git::GitRepository,
-        version::{BumpLevel, Version},
+        version::{BumpLevel, PreRelease, Suffix, Version},
     };
     use std::{collections::BTreeMap, fs};
     use tempfile::tempdir;
@@ -1645,6 +1919,88 @@ mod tests {
             expanded_plan.title,
             "chore(release): phlo 0.7.8 + 2 packages"
         );
+    }
+
+    #[test]
+    fn prerelease_release_set_pr_body_includes_package_table_and_explicit_install_command() {
+        let config: Config = toml::from_str(
+            r#"
+            [release]
+            pr_title = "chore(release): {version}"
+
+            [monorepo]
+            enabled = true
+            release_mode = "release_set"
+
+            [prerelease]
+            enabled = true
+
+            [prerelease.workspace]
+            sync_root_extras = ["defaults"]
+            "#,
+        )
+        .expect("config");
+        let analysis = prerelease_release_set_analysis(false);
+
+        let plan = build_release_pr_plan(&config, &analysis, "beta").expect("plan");
+
+        assert!(plan.body.contains("## Prerelease"), "{}", plan.body);
+        assert!(
+            plan.body
+                .contains("| phlo-iceberg | 0.3.1b2 | changed since latest tag |"),
+            "{}",
+            plan.body
+        );
+        assert!(
+            plan.body.contains("uv pip install --prerelease explicit"),
+            "{}",
+            plan.body
+        );
+        assert!(
+            plan.body.contains("\"phlo[defaults]==0.8.1b6\""),
+            "{}",
+            plan.body
+        );
+        assert!(
+            plan.body.contains("\"phlo-iceberg==0.3.1b2\""),
+            "{}",
+            plan.body
+        );
+        assert!(!plan.body.contains("--prerelease allow"));
+    }
+
+    #[test]
+    fn finalize_release_set_pr_body_calls_out_prerelease_finalization() {
+        let config: Config = toml::from_str(
+            r#"
+            [release]
+            pr_title = "chore(release): {version}"
+
+            [monorepo]
+            enabled = true
+            release_mode = "release_set"
+
+            [prerelease]
+            enabled = true
+            "#,
+        )
+        .expect("config");
+        let analysis = prerelease_release_set_analysis(true);
+
+        let plan = build_release_pr_plan(&config, &analysis, "main").expect("plan");
+
+        assert!(
+            plan.body.contains("## Finalize Prerelease"),
+            "{}",
+            plan.body
+        );
+        assert!(
+            plan.body
+                .contains("| phlo-iceberg | 0.3.1 | finalize prerelease package |"),
+            "{}",
+            plan.body
+        );
+        assert!(!plan.body.contains("--prerelease explicit"));
     }
 
     #[test]
@@ -2019,6 +2375,113 @@ mod tests {
                     selected: true,
                     selection_reason: "single-package repository".to_string(),
                 }],
+            },
+        }
+    }
+
+    fn prerelease_release_set_analysis(finalize: bool) -> ReleaseAnalysis {
+        let root_current_suffix = finalize.then_some(Suffix::Pre(PreRelease::Beta(5)));
+        let package_current_suffix = finalize.then_some(Suffix::Pre(PreRelease::Beta(1)));
+        ReleaseAnalysis {
+            current_version: Version {
+                major: 0,
+                minor: 8,
+                patch: 1,
+                suffix: root_current_suffix.clone(),
+            },
+            next_version: Some(Version {
+                major: 0,
+                minor: 8,
+                patch: 1,
+                suffix: if finalize {
+                    None
+                } else {
+                    Some(Suffix::Pre(PreRelease::Beta(6)))
+                },
+            }),
+            bump: if finalize {
+                BumpLevel::None
+            } else {
+                BumpLevel::Patch
+            },
+            commits: Vec::new(),
+            changelog: PendingChangelog {
+                sections: BTreeMap::new(),
+                contributors: Vec::new(),
+            },
+            package_plan: PackagePlan {
+                release_mode: "release_set".to_string(),
+                discovery_source: "test".to_string(),
+                packages: vec![
+                    PackageReleaseAnalysis {
+                        name: "phlo".to_string(),
+                        root: ".".to_string(),
+                        current_version: Version {
+                            major: 0,
+                            minor: 8,
+                            patch: 1,
+                            suffix: root_current_suffix,
+                        },
+                        next_version: Some(Version {
+                            major: 0,
+                            minor: 8,
+                            patch: 1,
+                            suffix: if finalize {
+                                None
+                            } else {
+                                Some(Suffix::Pre(PreRelease::Beta(6)))
+                            },
+                        }),
+                        bump: BumpLevel::Patch,
+                        changelog: PendingChangelog {
+                            sections: BTreeMap::new(),
+                            contributors: Vec::new(),
+                        },
+                        version_files: Vec::new(),
+                        commits: Vec::new(),
+                        changed_paths: Vec::new(),
+                        selected: true,
+                        selection_reason: if finalize {
+                            "finalize prerelease package".to_string()
+                        } else {
+                            "root prerelease".to_string()
+                        },
+                    },
+                    PackageReleaseAnalysis {
+                        name: "phlo-iceberg".to_string(),
+                        root: "packages/iceberg".to_string(),
+                        current_version: Version {
+                            major: 0,
+                            minor: 3,
+                            patch: 1,
+                            suffix: package_current_suffix,
+                        },
+                        next_version: Some(Version {
+                            major: 0,
+                            minor: 3,
+                            patch: 1,
+                            suffix: if finalize {
+                                None
+                            } else {
+                                Some(Suffix::Pre(PreRelease::Beta(2)))
+                            },
+                        }),
+                        bump: BumpLevel::Patch,
+                        changelog: PendingChangelog {
+                            sections: BTreeMap::new(),
+                            contributors: Vec::new(),
+                        },
+                        version_files: Vec::new(),
+                        commits: Vec::new(),
+                        changed_paths: vec!["packages/iceberg/src/mod.py".to_string()],
+                        selected: true,
+                        selection_reason: if finalize {
+                            "finalize prerelease package".to_string()
+                        } else {
+                            "changed since latest tag".to_string()
+                        },
+                    },
+                ],
             },
         }
     }

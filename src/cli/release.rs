@@ -5,10 +5,10 @@ use crate::{
     changelog::PendingChangelog,
     channels,
     cli::{Cli, PreReleaseArgs, PreReleaseKind, ReleaseCommand, ReleaseSubcommand},
-    config::Config,
+    config::{Config, Ecosystem},
     git::GitRepository,
     github, progress, publish,
-    version::{BumpLevel, Version},
+    version::{BumpLevel, Suffix, Version},
 };
 
 fn apply_suffix_bump(version: &Version, kind: &PreReleaseKind) -> Result<Version> {
@@ -22,10 +22,12 @@ fn apply_suffix_bump(version: &Version, kind: &PreReleaseKind) -> Result<Version
 }
 
 fn apply_pre_release_override(
+    config: &Config,
     analysis: &mut analysis::ReleaseAnalysis,
     args: &PreReleaseArgs,
 ) -> Result<()> {
     if args.finalize {
+        select_prerelease_packages_for_finalize(config, analysis);
         let finalized = analysis.current_version.finalize();
         analysis.next_version = Some(finalized);
         for package in &mut analysis.package_plan.packages {
@@ -34,6 +36,7 @@ fn apply_pre_release_override(
             }
         }
     } else if let Some(kind) = &args.pre_release {
+        select_prerelease_workspace_root(config, analysis);
         let base = match &analysis.next_version {
             Some(v) => v.clone(),
             None => analysis.current_version.bump_patch(),
@@ -52,6 +55,64 @@ fn apply_pre_release_override(
     Ok(())
 }
 
+fn select_prerelease_workspace_root(config: &Config, analysis: &mut analysis::ReleaseAnalysis) {
+    if !python_prerelease_workspace_enabled(config, analysis) {
+        return;
+    }
+
+    let Some(root_package) = analysis
+        .package_plan
+        .packages
+        .iter_mut()
+        .find(|package| package.root == ".")
+    else {
+        return;
+    };
+
+    if root_package.selected {
+        return;
+    }
+
+    root_package.selected = true;
+    root_package.bump = BumpLevel::Patch;
+    root_package.next_version = Some(root_package.current_version.bump_patch());
+    root_package.selection_reason = "root prerelease".to_string();
+}
+
+fn select_prerelease_packages_for_finalize(
+    config: &Config,
+    analysis: &mut analysis::ReleaseAnalysis,
+) {
+    if !python_prerelease_workspace_enabled(config, analysis) {
+        return;
+    }
+
+    for package in &mut analysis.package_plan.packages {
+        if !version_is_prerelease(&package.current_version) {
+            continue;
+        }
+
+        package.selected = true;
+        package.bump = BumpLevel::None;
+        package.next_version = Some(package.current_version.finalize());
+        package.selection_reason = "finalize prerelease package".to_string();
+    }
+}
+
+fn python_prerelease_workspace_enabled(
+    config: &Config,
+    analysis: &analysis::ReleaseAnalysis,
+) -> bool {
+    config.prerelease.enabled
+        && config.project.ecosystem == Some(Ecosystem::Python)
+        && config.monorepo.enabled
+        && analysis.package_plan.release_mode == "release_set"
+}
+
+fn version_is_prerelease(version: &Version) -> bool {
+    matches!(version.suffix, Some(Suffix::Pre(_)))
+}
+
 fn apply_channel_override(
     repo: &GitRepository,
     config: &Config,
@@ -61,6 +122,12 @@ fn apply_channel_override(
     let branch = repo
         .current_branch()
         .unwrap_or_else(|_| "unknown".to_string());
+    if channels::resolve_channel(config, &branch, args.channel.as_deref())
+        .and_then(|channel| channel.prerelease.as_ref())
+        .is_some()
+    {
+        select_prerelease_workspace_root(config, analysis);
+    }
     channels::apply_channel_to_analysis(repo, config, analysis, &branch, args.channel.as_deref())?;
     Ok(())
 }
@@ -152,7 +219,7 @@ pub fn run(cli: &Cli, command: &ReleaseCommand) -> Result<()> {
                 result?
             };
             apply_channel_override(&repo, &config, &mut analysis, args)?;
-            apply_pre_release_override(&mut analysis, args)?;
+            apply_pre_release_override(&config, &mut analysis, args)?;
             if cli.dry_run {
                 github::print_release_pr_dry_run(&repo, &config, &analysis)?;
             } else if config.monorepo.enabled {
@@ -178,7 +245,7 @@ pub fn run(cli: &Cli, command: &ReleaseCommand) -> Result<()> {
             };
             adjust_for_merged_release_pr(&repo, &config, &mut analysis)?;
             apply_channel_override(&repo, &config, &mut analysis, args)?;
-            apply_pre_release_override(&mut analysis, args)?;
+            apply_pre_release_override(&config, &mut analysis, args)?;
             if cli.dry_run {
                 github::print_release_tag_dry_run(&repo, &config, &analysis)?;
             } else if config.monorepo.enabled {
@@ -224,13 +291,17 @@ pub fn run(cli: &Cli, command: &ReleaseCommand) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use std::{fs, process::Command};
+    use std::{collections::BTreeMap, fs, process::Command};
 
     use tempfile::tempdir;
 
-    use super::analyze_for_publish;
+    use super::{analyze_for_publish, apply_pre_release_override};
+    use crate::analysis::{PackagePlan, PackageReleaseAnalysis, ReleaseAnalysis};
+    use crate::changelog::PendingChangelog;
+    use crate::cli::{PreReleaseArgs, PreReleaseKind};
     use crate::config::Config;
     use crate::git::GitRepository;
+    use crate::version::{BumpLevel, PreRelease, Suffix, Version};
 
     #[test]
     fn analyze_for_publish_uses_previous_tag_for_release_set_tag_commits() {
@@ -384,6 +455,218 @@ version = "0.2.4"
         assert_eq!(selected.len(), 2);
         assert_eq!(selected[0].name, "phlo");
         assert_eq!(selected[1].name, "phlo-delta");
+    }
+
+    #[test]
+    fn beta_prerelease_selects_root_package_when_workspace_config_includes_root() {
+        let config: Config = toml::from_str(
+            r#"
+            [project]
+            ecosystem = "python"
+
+            [prerelease]
+            enabled = true
+
+            [monorepo]
+            enabled = true
+            release_mode = "release_set"
+            "#,
+        )
+        .expect("config");
+        let mut analysis = sample_release_set_analysis(false);
+        let args = PreReleaseArgs {
+            channel: None,
+            pre_release: Some(PreReleaseKind::Beta),
+            finalize: false,
+        };
+
+        apply_pre_release_override(&config, &mut analysis, &args).expect("apply beta override");
+
+        let selected = analysis.package_plan.selected_packages();
+        assert_eq!(selected.len(), 2);
+        assert_eq!(selected[0].name, "phlo");
+        assert_eq!(selected[0].selection_reason, "root prerelease");
+        assert_eq!(
+            selected[0].next_version.as_ref().unwrap().to_string(),
+            "0.8.1b1"
+        );
+        assert_eq!(selected[1].name, "phlo-iceberg");
+        assert_eq!(
+            selected[1].next_version.as_ref().unwrap().to_string(),
+            "0.3.1b1"
+        );
+    }
+
+    #[test]
+    fn finalize_selects_all_packages_currently_on_prerelease_versions() {
+        let config: Config = toml::from_str(
+            r#"
+            [project]
+            ecosystem = "python"
+
+            [prerelease]
+            enabled = true
+
+            [monorepo]
+            enabled = true
+            release_mode = "release_set"
+            "#,
+        )
+        .expect("config");
+        let mut analysis = sample_finalize_analysis();
+        let args = PreReleaseArgs {
+            channel: None,
+            pre_release: None,
+            finalize: true,
+        };
+
+        apply_pre_release_override(&config, &mut analysis, &args).expect("apply finalize");
+
+        let selected = analysis.package_plan.selected_packages();
+        assert_eq!(selected.len(), 2);
+        assert_eq!(selected[0].name, "phlo");
+        assert_eq!(selected[0].selection_reason, "finalize prerelease package");
+        assert_eq!(
+            selected[0].next_version.as_ref().unwrap().to_string(),
+            "0.8.1"
+        );
+        assert_eq!(selected[1].name, "phlo-iceberg");
+        assert_eq!(
+            selected[1].next_version.as_ref().unwrap().to_string(),
+            "0.3.1"
+        );
+        assert!(!analysis.package_plan.packages[2].selected);
+    }
+
+    fn sample_release_set_analysis(root_selected: bool) -> ReleaseAnalysis {
+        ReleaseAnalysis {
+            current_version: Version {
+                major: 0,
+                minor: 8,
+                patch: 0,
+                suffix: None,
+            },
+            next_version: Some(Version {
+                major: 0,
+                minor: 8,
+                patch: 1,
+                suffix: None,
+            }),
+            bump: BumpLevel::Patch,
+            commits: Vec::new(),
+            changelog: PendingChangelog {
+                sections: BTreeMap::new(),
+                contributors: Vec::new(),
+            },
+            package_plan: PackagePlan {
+                release_mode: "release_set".to_string(),
+                discovery_source: "test".to_string(),
+                packages: vec![
+                    PackageReleaseAnalysis {
+                        name: "phlo".to_string(),
+                        root: ".".to_string(),
+                        current_version: Version {
+                            major: 0,
+                            minor: 8,
+                            patch: 0,
+                            suffix: None,
+                        },
+                        next_version: if root_selected {
+                            Some(Version {
+                                major: 0,
+                                minor: 8,
+                                patch: 1,
+                                suffix: None,
+                            })
+                        } else {
+                            None
+                        },
+                        bump: if root_selected {
+                            BumpLevel::Patch
+                        } else {
+                            BumpLevel::None
+                        },
+                        changelog: PendingChangelog {
+                            sections: BTreeMap::new(),
+                            contributors: Vec::new(),
+                        },
+                        version_files: Vec::new(),
+                        commits: Vec::new(),
+                        changed_paths: Vec::new(),
+                        selected: root_selected,
+                        selection_reason: "test".to_string(),
+                    },
+                    PackageReleaseAnalysis {
+                        name: "phlo-iceberg".to_string(),
+                        root: "packages/iceberg".to_string(),
+                        current_version: Version {
+                            major: 0,
+                            minor: 3,
+                            patch: 0,
+                            suffix: None,
+                        },
+                        next_version: Some(Version {
+                            major: 0,
+                            minor: 3,
+                            patch: 1,
+                            suffix: None,
+                        }),
+                        bump: BumpLevel::Patch,
+                        changelog: PendingChangelog {
+                            sections: BTreeMap::new(),
+                            contributors: Vec::new(),
+                        },
+                        version_files: Vec::new(),
+                        commits: Vec::new(),
+                        changed_paths: vec!["packages/iceberg/src/mod.py".to_string()],
+                        selected: true,
+                        selection_reason: "changed since latest tag".to_string(),
+                    },
+                ],
+            },
+        }
+    }
+
+    fn sample_finalize_analysis() -> ReleaseAnalysis {
+        let mut analysis = sample_release_set_analysis(false);
+        analysis.current_version = Version {
+            major: 0,
+            minor: 8,
+            patch: 1,
+            suffix: Some(Suffix::Pre(PreRelease::Beta(5))),
+        };
+        analysis.next_version = None;
+        analysis.package_plan.packages[0].current_version = analysis.current_version.clone();
+        analysis.package_plan.packages[1].current_version = Version {
+            major: 0,
+            minor: 3,
+            patch: 1,
+            suffix: Some(Suffix::Pre(PreRelease::Beta(1))),
+        };
+        analysis.package_plan.packages[1].selected = false;
+        analysis.package_plan.packages[1].next_version = None;
+        analysis.package_plan.packages.push(PackageReleaseAnalysis {
+            name: "phlo-sql".to_string(),
+            root: "packages/sql".to_string(),
+            current_version: Version {
+                major: 0,
+                minor: 2,
+                patch: 0,
+                suffix: None,
+            },
+            next_version: None,
+            bump: BumpLevel::None,
+            changelog: PendingChangelog {
+                sections: BTreeMap::new(),
+                contributors: Vec::new(),
+            },
+            version_files: Vec::new(),
+            commits: Vec::new(),
+            changed_paths: Vec::new(),
+            selected: false,
+            selection_reason: "test".to_string(),
+        });
+        analysis
     }
 
     fn run(repo_path: &std::path::Path, args: &[&str]) {

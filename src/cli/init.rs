@@ -119,6 +119,7 @@ fn build_config(repo: Option<&GitRepository>, repo_root: &Path) -> InitPlan {
             publish,
             github: github_config,
             workspace: Default::default(),
+            prerelease: Default::default(),
             ci: Default::default(),
             channels: Vec::new(),
         },

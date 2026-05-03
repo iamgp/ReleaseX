@@ -8,6 +8,7 @@ mod cratesio;
 mod ecosystem;
 mod git;
 mod github;
+mod prerelease;
 mod progress;
 mod publish;
 mod pypi;

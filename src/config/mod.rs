@@ -24,6 +24,8 @@ pub struct Config {
     #[serde(default)]
     pub workspace: WorkspaceConfig,
     #[serde(default)]
+    pub prerelease: PrereleaseConfig,
+    #[serde(default)]
     pub ci: CiConfig,
     #[serde(default)]
     pub channels: Vec<ChannelConfig>,
@@ -426,6 +428,69 @@ pub struct WorkspaceConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PrereleaseConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub workspace: PrereleaseWorkspaceConfig,
+    #[serde(default)]
+    pub verify: PrereleaseVerifyConfig,
+}
+
+impl Default for PrereleaseConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            workspace: PrereleaseWorkspaceConfig::default(),
+            verify: PrereleaseVerifyConfig::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PrereleaseWorkspaceConfig {
+    #[serde(default = "default_prerelease_include_root")]
+    pub include_root: bool,
+    #[serde(default = "default_prerelease_sync_root_dependencies")]
+    pub sync_root_dependencies: bool,
+    #[serde(default)]
+    pub sync_root_extras: Vec<String>,
+}
+
+impl Default for PrereleaseWorkspaceConfig {
+    fn default() -> Self {
+        Self {
+            include_root: default_prerelease_include_root(),
+            sync_root_dependencies: default_prerelease_sync_root_dependencies(),
+            sync_root_extras: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PrereleaseVerifyConfig {
+    #[serde(default = "default_prerelease_verify_lock")]
+    pub lock: bool,
+    #[serde(default = "default_prerelease_verify_build")]
+    pub build: bool,
+    #[serde(default = "default_prerelease_verify_inspect_wheel_metadata")]
+    pub inspect_wheel_metadata: bool,
+    #[serde(default = "default_prerelease_verify_emit_install_command")]
+    pub emit_install_command: bool,
+}
+
+impl Default for PrereleaseVerifyConfig {
+    fn default() -> Self {
+        Self {
+            lock: default_prerelease_verify_lock(),
+            build: default_prerelease_verify_build(),
+            inspect_wheel_metadata: default_prerelease_verify_inspect_wheel_metadata(),
+            emit_install_command: default_prerelease_verify_emit_install_command(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CiConfig {
     #[serde(default = "default_ci_provider")]
     pub provider: String,
@@ -448,6 +513,30 @@ fn default_ci_provider() -> String {
 
 fn default_ci_workflow_path() -> String {
     ".github/workflows/release.yml".to_string()
+}
+
+fn default_prerelease_include_root() -> bool {
+    true
+}
+
+fn default_prerelease_sync_root_dependencies() -> bool {
+    true
+}
+
+fn default_prerelease_verify_lock() -> bool {
+    true
+}
+
+fn default_prerelease_verify_build() -> bool {
+    true
+}
+
+fn default_prerelease_verify_inspect_wheel_metadata() -> bool {
+    true
+}
+
+fn default_prerelease_verify_emit_install_command() -> bool {
+    true
 }
 
 fn default_contributors_enabled() -> bool {
@@ -557,5 +646,43 @@ mod tests {
         .expect("config");
         assert_eq!(config.github.commit_author, "release-bot");
         assert_eq!(config.github.commit_email, "release-bot@example.com");
+    }
+
+    #[test]
+    fn prerelease_config_defaults_are_non_invasive() {
+        let config: Config = toml::from_str("").expect("default config");
+
+        assert!(!config.prerelease.enabled);
+        assert!(config.prerelease.workspace.include_root);
+        assert!(config.prerelease.workspace.sync_root_dependencies);
+        assert!(config.prerelease.workspace.sync_root_extras.is_empty());
+        assert!(config.prerelease.verify.lock);
+        assert!(config.prerelease.verify.build);
+        assert!(config.prerelease.verify.inspect_wheel_metadata);
+        assert!(config.prerelease.verify.emit_install_command);
+    }
+
+    #[test]
+    fn prerelease_config_parses_phlo_style_workspace_settings() {
+        let config: Config = toml::from_str(
+            r#"
+            [prerelease]
+            enabled = true
+
+            [prerelease.workspace]
+            sync_root_extras = ["defaults", "core-services"]
+
+            [prerelease.verify]
+            emit_install_command = true
+            "#,
+        )
+        .expect("config");
+
+        assert!(config.prerelease.enabled);
+        assert_eq!(
+            config.prerelease.workspace.sync_root_extras,
+            vec!["defaults".to_string(), "core-services".to_string()]
+        );
+        assert!(config.prerelease.verify.emit_install_command);
     }
 }
