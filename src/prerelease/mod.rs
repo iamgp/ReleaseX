@@ -93,6 +93,9 @@ fn rewrite_dependency_constraint(
         None => (dependency, ""),
     };
     let requirement = requirement.trim_end();
+    if requirement.contains('@') {
+        return Some(dependency.to_string());
+    }
 
     let op_index = requirement
         .char_indices()
@@ -243,6 +246,37 @@ docs = [
         assert!(updated.contains("\"phlo-dagster>=0.3.1b2\""));
         assert!(updated.contains("\"sqlalchemy>=2.0\""));
         assert!(updated.contains("\"phlo-iceberg>=0.1.0\""));
+    }
+
+    #[test]
+    fn skips_pep_508_direct_references_when_syncing_dependencies() {
+        let dir = tempdir().expect("tempdir");
+        let pyproject = dir.path().join("pyproject.toml");
+        fs::write(
+            &pyproject,
+            r#"
+[project]
+name = "phlo"
+version = "0.8.1b5"
+dependencies = [
+  "phlo-local @ file:///tmp/phlo-local",
+  "phlo-iceberg>=0.1.0",
+]
+"#,
+        )
+        .expect("write pyproject");
+        let packages = BTreeMap::from([
+            ("phlo-local".to_string(), "0.2.0b1".to_string()),
+            ("phlo-iceberg".to_string(), "0.3.1b1".to_string()),
+        ]);
+
+        let changed = sync_root_python_workspace_dependencies(dir.path(), &packages, true, &[])
+            .expect("sync dependencies");
+
+        let updated = fs::read_to_string(&pyproject).expect("read updated pyproject");
+        assert!(changed);
+        assert!(updated.contains("\"phlo-local @ file:///tmp/phlo-local\""));
+        assert!(updated.contains("\"phlo-iceberg>=0.3.1b1\""));
     }
 
     #[test]

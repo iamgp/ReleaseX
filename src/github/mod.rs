@@ -338,16 +338,25 @@ fn find_wheel(dist_dir: &Path, package_name: &str, version: &str) -> Result<std:
 }
 
 fn normalize_wheel_distribution(package_name: &str) -> String {
-    package_name
-        .chars()
-        .map(|ch| {
-            if ch.is_ascii_alphanumeric() || ch == '_' {
-                ch.to_ascii_lowercase()
-            } else {
-                '_'
+    let mut normalized = String::new();
+    let mut in_separator = false;
+    for ch in package_name.chars() {
+        if matches!(ch, '-' | '_' | '.') {
+            if !in_separator {
+                normalized.push('_');
+                in_separator = true;
             }
-        })
-        .collect()
+            continue;
+        }
+
+        in_separator = false;
+        if ch.is_ascii_alphanumeric() {
+            normalized.push(ch.to_ascii_lowercase());
+        } else {
+            normalized.push('_');
+        }
+    }
+    normalized
 }
 
 fn read_wheel_metadata(wheel_path: &Path) -> Result<String> {
@@ -506,10 +515,21 @@ fn prerelease_pr_body(config: &Config, analysis: &ReleaseAnalysis) -> Result<Str
             .iter()
             .find(|package| package.root == ".")
             .context("prerelease release set has no root package")?;
-        let extra = &config.prerelease.workspace.sync_root_extras[0];
-        let command = build_explicit_install_command(&root.name, &root.version, extra, &packages);
         body.push_str("\n## PyPI Verification Command\n\n```bash\n");
-        body.push_str(&command);
+        for (index, extra) in config
+            .prerelease
+            .workspace
+            .sync_root_extras
+            .iter()
+            .enumerate()
+        {
+            if index > 0 {
+                body.push_str("\n\n");
+            }
+            let command =
+                build_explicit_install_command(&root.name, &root.version, extra, &packages);
+            body.push_str(&command);
+        }
         body.push_str("\n```\n");
     }
 
@@ -1578,7 +1598,8 @@ fn parse_json<T: for<'de> Deserialize<'de>>(body: String) -> Result<T> {
 #[cfg(test)]
 mod tests {
     use super::{
-        build_release_pr_plan, build_release_tag_plan, parse_remote_url, single_package_analysis,
+        build_release_pr_plan, build_release_tag_plan, normalize_wheel_distribution,
+        parse_remote_url, single_package_analysis,
     };
     use crate::{
         analysis::{PackagePlan, PackageReleaseAnalysis, ReleaseAnalysis},
@@ -1978,6 +1999,33 @@ mod tests {
     }
 
     #[test]
+    fn prerelease_release_set_pr_body_includes_all_configured_extras() {
+        let config: Config = toml::from_str(
+            r#"
+            [release]
+            pr_title = "chore(release): {version}"
+
+            [monorepo]
+            enabled = true
+            release_mode = "release_set"
+
+            [prerelease]
+            enabled = true
+
+            [prerelease.workspace]
+            sync_root_extras = ["defaults", "core-services"]
+            "#,
+        )
+        .expect("config");
+        let analysis = prerelease_release_set_analysis(false);
+
+        let plan = build_release_pr_plan(&config, &analysis, "beta").expect("plan");
+
+        assert!(plan.body.contains("\"phlo[defaults]==0.8.1b6\""));
+        assert!(plan.body.contains("\"phlo[core-services]==0.8.1b6\""));
+    }
+
+    #[test]
     fn finalize_release_set_pr_body_calls_out_prerelease_finalization() {
         let config: Config = toml::from_str(
             r#"
@@ -2009,6 +2057,14 @@ mod tests {
             plan.body
         );
         assert!(!plan.body.contains("--prerelease explicit"));
+    }
+
+    #[test]
+    fn wheel_distribution_normalization_collapses_separator_runs() {
+        assert_eq!(
+            normalize_wheel_distribution("Phlo---Iceberg.Core"),
+            "phlo_iceberg_core"
+        );
     }
 
     #[test]

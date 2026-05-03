@@ -1,7 +1,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     env, fs,
-    path::Path,
+    path::{Component, Path},
 };
 
 use anyhow::{Context, Result, bail};
@@ -237,6 +237,7 @@ fn discover_packages(
     if !config.monorepo.packages.is_empty() {
         let mut package_roots = config.monorepo.packages.clone();
         maybe_include_prerelease_root_package(repo_root, config, &mut package_roots);
+        normalize_and_deduplicate_package_roots(&mut package_roots);
         let packages = package_roots
             .iter()
             .map(|package_root| load_package_definition(repo_root, package_root))
@@ -247,6 +248,7 @@ fn discover_packages(
     if let Some(uv_roots) = discover_uv_workspace(repo_root) {
         let mut package_roots = uv_roots;
         maybe_include_prerelease_root_package(repo_root, config, &mut package_roots);
+        normalize_and_deduplicate_package_roots(&mut package_roots);
         let packages = package_roots
             .iter()
             .map(|package_root| load_package_definition(repo_root, package_root))
@@ -310,6 +312,41 @@ fn maybe_include_prerelease_root_package(
     }
 
     package_roots.insert(0, ".".to_string());
+}
+
+fn normalize_and_deduplicate_package_roots(package_roots: &mut Vec<String>) {
+    let mut seen = BTreeSet::new();
+    let mut normalized_roots = Vec::new();
+    for package_root in package_roots.drain(..) {
+        let normalized = normalize_package_root(&package_root);
+        if seen.insert(normalized.clone()) {
+            normalized_roots.push(normalized);
+        }
+    }
+    *package_roots = normalized_roots;
+}
+
+fn normalize_package_root(package_root: &str) -> String {
+    let mut parts = Vec::new();
+    for component in Path::new(package_root).components() {
+        match component {
+            Component::CurDir => {}
+            Component::Normal(part) => parts.push(part.to_string_lossy().to_string()),
+            Component::ParentDir => {
+                if parts.last().is_some_and(|part| part != "..") {
+                    parts.pop();
+                } else {
+                    parts.push("..".to_string());
+                }
+            }
+            _ => {}
+        }
+    }
+    if parts.is_empty() {
+        ".".to_string()
+    } else {
+        parts.join("/")
+    }
 }
 
 pub fn discover_uv_workspace(repo_root: &Path) -> Option<Vec<String>> {
@@ -1183,5 +1220,49 @@ enabled = true
         assert_eq!(packages[0].root, ".");
         assert_eq!(packages[1].name, "phlo-iceberg");
         assert_eq!(packages[1].root, "packages/iceberg");
+    }
+
+    #[test]
+    fn explicit_monorepo_package_roots_are_normalized_and_deduplicated() {
+        let dir = tempdir().expect("tempdir");
+        let repo_root = dir.path();
+
+        fs::write(
+            repo_root.join("pyproject.toml"),
+            r#"
+[project]
+name = "phlo"
+version = "0.8.0"
+"#,
+        )
+        .expect("write root pyproject");
+        fs::create_dir_all(repo_root.join("packages/iceberg")).expect("create workspace package");
+        fs::write(
+            repo_root.join("packages/iceberg/pyproject.toml"),
+            r#"
+[project]
+name = "phlo-iceberg"
+version = "0.3.0"
+"#,
+        )
+        .expect("write package pyproject");
+        let config: Config = toml::from_str(
+            r#"
+[monorepo]
+enabled = true
+release_mode = "release_set"
+packages = [".", "./", "packages/iceberg", "packages/./iceberg"]
+"#,
+        )
+        .expect("config");
+
+        let (packages, source) = discover_packages(repo_root, &config).expect("packages");
+        let roots = packages
+            .iter()
+            .map(|package| package.root.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(source, "[monorepo].packages");
+        assert_eq!(roots, vec![".", "packages/iceberg"]);
     }
 }

@@ -111,7 +111,7 @@ version_range = ">=1.0.0,<2.0.0"
 
 This prevents a `2.0.0` release from being cut from the maintenance line.
 
-## Pre-release numbering
+## Prerelease numbering
 
 If the active package registry is reachable and a package name can be resolved, `relx` tries to increment prerelease numbers based on existing releases:
 
@@ -125,7 +125,7 @@ If the active package registry is reachable and a package name can be resolved, 
 
 If the registry cannot be queried, `relx` falls back to local version bumping.
 
-## Manual pre-release flags
+## Manual prerelease flags
 
 You can still use the lower-level flags directly:
 
