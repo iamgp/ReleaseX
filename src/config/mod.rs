@@ -427,7 +427,7 @@ pub struct WorkspaceConfig {
     pub cascade_bumps: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct PrereleaseConfig {
     #[serde(default)]
     pub enabled: bool,
@@ -435,16 +435,6 @@ pub struct PrereleaseConfig {
     pub workspace: PrereleaseWorkspaceConfig,
     #[serde(default)]
     pub verify: PrereleaseVerifyConfig,
-}
-
-impl Default for PrereleaseConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            workspace: PrereleaseWorkspaceConfig::default(),
-            verify: PrereleaseVerifyConfig::default(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
