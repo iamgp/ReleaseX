@@ -74,6 +74,32 @@ On the `beta` branch, `relx` will:
 - target `beta` as the release PR base branch
 - generate tags like `v1.2.3b1`
 
+For Python `release_set` monorepos, enable prerelease workspace support when root
+extras need to point at beta workspace packages:
+
+```toml
+[prerelease]
+enabled = true
+
+[prerelease.workspace]
+sync_root_extras = ["defaults", "core-services"]
+```
+
+With that config, beta release PRs also update root dependency/extras constraints
+for selected workspace packages, run `uv lock`, inspect the built root wheel
+metadata, and include a verification command that uses `uv pip install
+--prerelease explicit` with exact beta pins.
+
+When the beta series is ready for a stable release, run:
+
+```bash
+relx release pr --finalize
+```
+
+For Python prerelease workspaces, finalize selects packages whose current version
+is still a prerelease and updates the same package set to stable versions, even
+if those packages have no new file changes after the latest beta tag.
+
 ### Maintenance branch guard
 
 ```toml
@@ -85,7 +111,7 @@ version_range = ">=1.0.0,<2.0.0"
 
 This prevents a `2.0.0` release from being cut from the maintenance line.
 
-## Pre-release numbering
+## Prerelease numbering
 
 If the active package registry is reachable and a package name can be resolved, `relx` tries to increment prerelease numbers based on existing releases:
 
@@ -99,7 +125,7 @@ If the active package registry is reachable and a package name can be resolved, 
 
 If the registry cannot be queried, `relx` falls back to local version bumping.
 
-## Manual pre-release flags
+## Manual prerelease flags
 
 You can still use the lower-level flags directly:
 

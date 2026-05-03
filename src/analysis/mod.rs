@@ -1,7 +1,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     env, fs,
-    path::Path,
+    path::{Component, Path},
 };
 
 use anyhow::{Context, Result, bail};
@@ -235,9 +235,10 @@ fn discover_packages(
     config: &Config,
 ) -> Result<(Vec<PackageDefinition>, String)> {
     if !config.monorepo.packages.is_empty() {
-        let packages = config
-            .monorepo
-            .packages
+        let mut package_roots = config.monorepo.packages.clone();
+        maybe_include_prerelease_root_package(repo_root, config, &mut package_roots);
+        normalize_and_deduplicate_package_roots(&mut package_roots);
+        let packages = package_roots
             .iter()
             .map(|package_root| load_package_definition(repo_root, package_root))
             .collect::<Result<Vec<_>>>()?;
@@ -245,7 +246,10 @@ fn discover_packages(
     }
 
     if let Some(uv_roots) = discover_uv_workspace(repo_root) {
-        let packages = uv_roots
+        let mut package_roots = uv_roots;
+        maybe_include_prerelease_root_package(repo_root, config, &mut package_roots);
+        normalize_and_deduplicate_package_roots(&mut package_roots);
+        let packages = package_roots
             .iter()
             .map(|package_root| load_package_definition(repo_root, package_root))
             .collect::<Result<Vec<_>>>()?;
@@ -273,6 +277,7 @@ fn discover_packages(
 
     let mut package_roots = Vec::new();
     scan_for_package_roots(repo_root, repo_root, &mut package_roots);
+    maybe_include_prerelease_root_package(repo_root, config, &mut package_roots);
     package_roots.sort();
     package_roots.dedup();
 
@@ -284,6 +289,64 @@ fn discover_packages(
         packages,
         "auto-discovered package pyproject.toml files".to_string(),
     ))
+}
+
+fn maybe_include_prerelease_root_package(
+    repo_root: &Path,
+    config: &Config,
+    package_roots: &mut Vec<String>,
+) {
+    if !config.prerelease.enabled
+        || !config.prerelease.workspace.include_root
+        || config.project.ecosystem != Some(Ecosystem::Python)
+        || package_roots.iter().any(|root| root == ".")
+    {
+        return;
+    }
+
+    let Ok(version_files) = detect_python_package_version_files(repo_root, repo_root) else {
+        return;
+    };
+    if version_files.is_empty() {
+        return;
+    }
+
+    package_roots.insert(0, ".".to_string());
+}
+
+fn normalize_and_deduplicate_package_roots(package_roots: &mut Vec<String>) {
+    let mut seen = BTreeSet::new();
+    let mut normalized_roots = Vec::new();
+    for package_root in package_roots.drain(..) {
+        let normalized = normalize_package_root(&package_root);
+        if seen.insert(normalized.clone()) {
+            normalized_roots.push(normalized);
+        }
+    }
+    *package_roots = normalized_roots;
+}
+
+fn normalize_package_root(package_root: &str) -> String {
+    let mut parts = Vec::new();
+    for component in Path::new(package_root).components() {
+        match component {
+            Component::CurDir => {}
+            Component::Normal(part) => parts.push(part.to_string_lossy().to_string()),
+            Component::ParentDir => {
+                if parts.last().is_some_and(|part| part != "..") {
+                    parts.pop();
+                } else {
+                    parts.push("..".to_string());
+                }
+            }
+            _ => {}
+        }
+    }
+    if parts.is_empty() {
+        ".".to_string()
+    } else {
+        parts.join("/")
+    }
 }
 
 pub fn discover_uv_workspace(repo_root: &Path) -> Option<Vec<String>> {
@@ -1049,7 +1112,8 @@ mod tests {
 
     use tempfile::tempdir;
 
-    use super::{detect_python_package_version_files, read_current_version};
+    use super::{detect_python_package_version_files, discover_packages, read_current_version};
+    use crate::config::Config;
 
     #[test]
     fn root_python_package_skips_nested_workspace_version_files() {
@@ -1101,5 +1165,104 @@ version = "0.2.1"
         let current_version =
             read_current_version(repo_root, &version_files).expect("read current version");
         assert_eq!(current_version.as_deref(), Some("0.7.0"));
+    }
+
+    #[test]
+    fn prerelease_python_uv_workspace_discovery_includes_root_package() {
+        let dir = tempdir().expect("tempdir");
+        let repo_root = dir.path();
+
+        fs::write(
+            repo_root.join("pyproject.toml"),
+            r#"
+[project]
+name = "phlo"
+version = "0.8.0"
+
+[tool.uv.workspace]
+members = ["packages/*"]
+"#,
+        )
+        .expect("write root pyproject");
+        fs::create_dir_all(repo_root.join("packages/iceberg")).expect("create workspace package");
+        fs::write(
+            repo_root.join("packages/iceberg/pyproject.toml"),
+            r#"
+[project]
+name = "phlo-iceberg"
+version = "0.3.0"
+"#,
+        )
+        .expect("write package pyproject");
+        let config: Config = toml::from_str(
+            r#"
+[project]
+ecosystem = "python"
+
+[[version_files]]
+path = "pyproject.toml"
+key = "project.version"
+
+[monorepo]
+enabled = true
+release_mode = "release_set"
+
+[prerelease]
+enabled = true
+"#,
+        )
+        .expect("config");
+
+        let (packages, source) = discover_packages(repo_root, &config).expect("packages");
+
+        assert_eq!(source, "uv workspace (tool.uv.workspace.members)");
+        assert_eq!(packages[0].name, "phlo");
+        assert_eq!(packages[0].root, ".");
+        assert_eq!(packages[1].name, "phlo-iceberg");
+        assert_eq!(packages[1].root, "packages/iceberg");
+    }
+
+    #[test]
+    fn explicit_monorepo_package_roots_are_normalized_and_deduplicated() {
+        let dir = tempdir().expect("tempdir");
+        let repo_root = dir.path();
+
+        fs::write(
+            repo_root.join("pyproject.toml"),
+            r#"
+[project]
+name = "phlo"
+version = "0.8.0"
+"#,
+        )
+        .expect("write root pyproject");
+        fs::create_dir_all(repo_root.join("packages/iceberg")).expect("create workspace package");
+        fs::write(
+            repo_root.join("packages/iceberg/pyproject.toml"),
+            r#"
+[project]
+name = "phlo-iceberg"
+version = "0.3.0"
+"#,
+        )
+        .expect("write package pyproject");
+        let config: Config = toml::from_str(
+            r#"
+[monorepo]
+enabled = true
+release_mode = "release_set"
+packages = [".", "./", "packages/iceberg", "packages/./iceberg"]
+"#,
+        )
+        .expect("config");
+
+        let (packages, source) = discover_packages(repo_root, &config).expect("packages");
+        let roots = packages
+            .iter()
+            .map(|package| package.root.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(source, "[monorepo].packages");
+        assert_eq!(roots, vec![".", "packages/iceberg"]);
     }
 }

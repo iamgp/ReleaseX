@@ -268,8 +268,14 @@ repo = "demo"
 }
 
 fn run(repo_path: &std::path::Path, args: &[&str]) {
+    let mut command_args = args[1..].to_vec();
+    if args.first() == Some(&"git") && args.get(1) == Some(&"tag") {
+        command_args = vec!["-c", "tag.gpgSign=false", "tag"];
+        command_args.extend_from_slice(&args[2..]);
+    }
+
     let status = Command::new(args[0])
-        .args(&args[1..])
+        .args(command_args)
         .current_dir(repo_path)
         .status()
         .expect("command should run");

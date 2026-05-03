@@ -6,7 +6,7 @@ use std::{
     process::Command,
 };
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -29,23 +29,18 @@ pub struct PublishPlan {
 
 pub fn execute(repo_root: &Path, config: &Config, skip_published: bool) -> Result<()> {
     // Check if we should skip based on PyPI version check
-    if skip_published {
-        if let Some(version) = get_current_version(repo_root, config) {
-            if let Some(package_name) = get_package_name(repo_root, ".") {
-                match check_already_published(
-                    &package_name,
-                    &version,
-                    config.publish.provider.as_str(),
-                ) {
-                    Ok(true) => {
-                        println!("Skipping {package_name} {version}: already published");
-                        return Ok(());
-                    }
-                    Ok(false) => {}
-                    Err(e) => {
-                        eprintln!("Warning: Could not check if package is already published: {e}");
-                    }
-                }
+    if skip_published
+        && let Some(version) = get_current_version(repo_root, config)
+        && let Some(package_name) = get_package_name(repo_root, ".")
+    {
+        match check_already_published(&package_name, &version, config.publish.provider.as_str()) {
+            Ok(true) => {
+                println!("Skipping {package_name} {version}: already published");
+                return Ok(());
+            }
+            Ok(false) => {}
+            Err(e) => {
+                eprintln!("Warning: Could not check if package is already published: {e}");
             }
         }
     }

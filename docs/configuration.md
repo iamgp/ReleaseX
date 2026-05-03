@@ -184,6 +184,36 @@ If `packages` is empty and a `uv` workspace is present, `relx` can auto-discover
 - `provider`: currently `github`
 - `workflow_path`: destination for generated workflow YAML
 
+## `[prerelease]`
+
+Controls optional Python monorepo prerelease safety checks. Defaults are inert unless
+`enabled = true`.
+
+- `enabled`: enable prerelease workspace dependency syncing and verification
+
+```toml
+[prerelease]
+enabled = true
+
+[prerelease.workspace]
+include_root = true
+sync_root_dependencies = true
+sync_root_extras = ["defaults", "core-services"]
+
+[prerelease.verify]
+lock = true
+build = true
+inspect_wheel_metadata = true
+emit_install_command = true
+```
+
+For Python `release_set` monorepos, beta release PRs include the root package,
+rewrite selected root dependency/extras constraints to the beta workspace package
+versions, run `uv lock`, build root and selected packages, inspect root wheel
+metadata, and emit an explicit PyPI install verification command. Final releases
+created with `relx release pr --finalize` select packages currently on prerelease
+versions and rewrite those constraints back to stable versions.
+
 ## `[[channels]]`
 
 Channels map branches to release behavior.

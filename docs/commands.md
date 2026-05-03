@@ -112,6 +112,11 @@ relx release pr --channel beta
 relx release pr --finalize
 ```
 
+For Python `release_set` monorepos with `[prerelease] enabled = true`, beta PRs
+sync configured root extras to selected beta workspace package versions and add
+an explicit PyPI verification command. `--finalize` promotes packages currently
+on prerelease versions to their stable versions.
+
 ### `relx release tag`
 
 Create the git tag and GitHub Release.
