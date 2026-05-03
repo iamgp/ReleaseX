@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.2.0] - 2026-03-31
+
+### Added
+- add --skip-published flag for idempotent publishes
+
+### Contributors
+Thanks to our contributors for this release:
+- @iamgp (2 commits)
+
 ## [1.1.4] - 2026-03-28
 
 ### Fixed
