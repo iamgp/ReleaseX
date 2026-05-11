@@ -718,7 +718,8 @@ pub fn execute_monorepo_release_pr(
 ) -> Result<()> {
     let selected = analysis.package_plan.selected_packages();
     if selected.is_empty() {
-        bail!("no releasable packages found in monorepo");
+        println!("No releasable packages found in monorepo; release PR not created.");
+        return Ok(());
     }
 
     if monorepo_single_pr_mode(config.monorepo.release_mode.as_str()) {
@@ -1802,6 +1803,66 @@ mod tests {
             "{}",
             plan.body
         );
+    }
+
+    #[test]
+    fn monorepo_release_pr_noops_when_no_packages_are_releasable() {
+        let dir = tempdir().expect("tempdir");
+        run(dir.path(), &["git", "init", "-b", "main"]);
+        let repo = GitRepository::discover(dir.path()).expect("repo");
+        let config: Config = toml::from_str(
+            r#"
+            [monorepo]
+            enabled = true
+            release_mode = "release_set"
+            "#,
+        )
+        .expect("config");
+        let analysis = ReleaseAnalysis {
+            current_version: Version {
+                major: 0,
+                minor: 8,
+                patch: 3,
+                suffix: None,
+            },
+            next_version: None,
+            bump: BumpLevel::None,
+            commits: Vec::new(),
+            changelog: PendingChangelog {
+                sections: BTreeMap::new(),
+                contributors: Vec::new(),
+            },
+            package_plan: PackagePlan {
+                release_mode: "release_set".to_string(),
+                discovery_source: "test".to_string(),
+                packages: vec![PackageReleaseAnalysis {
+                    name: "phlo-api".to_string(),
+                    root: "packages/phlo-api".to_string(),
+                    current_version: Version {
+                        major: 0,
+                        minor: 3,
+                        patch: 1,
+                        suffix: None,
+                    },
+                    next_version: None,
+                    bump: BumpLevel::None,
+                    changelog: PendingChangelog {
+                        sections: BTreeMap::new(),
+                        contributors: Vec::new(),
+                    },
+                    version_files: Vec::new(),
+                    commits: Vec::new(),
+                    changed_paths: vec![
+                        "packages/phlo-api/src/phlo_api/observatory_api/v2.py".to_string(),
+                    ],
+                    selected: false,
+                    selection_reason: "no releasable package changes detected since the latest tag"
+                        .to_string(),
+                }],
+            },
+        };
+
+        super::execute_monorepo_release_pr(&repo, &config, &analysis).expect("no-op release pr");
     }
 
     #[test]
