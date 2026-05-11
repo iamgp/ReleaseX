@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.3.1] - 2026-05-11
+
+### Fixed
+- no-op empty monorepo release prs (#42)
+
+### Contributors
+Thanks to our contributors for this release:
+- @iamgp (1 commit)
+
 ## [1.3.0] - 2026-05-03
 
 ### Added
