@@ -121,6 +121,26 @@ version_range = ">=1.0.0,<2.0.0"
 
 `[[release.transformers]]` runs a repository-provided command in the isolated release workspace after dependency synchronization. It receives the versioned `ReleaseWorkspacePlan` JSON on stdin and must emit `{ "schema_version": 1, "changed_files": [...] }` to stdout. Every changed path must be declared in `outputs`; transformer processes inherit only `PATH`, not credentials or the parent environment. `timeout_seconds` defaults to 60 and terminates commands that exceed it.
 
+For simple derived version references, prefer checked declarative replacements instead of a transformer. Each selected package expands `{name}`, `{path}`, `{current_version}`, and `{next_version}`. `files` uses workspace-relative globs and matching is literal, not regex. `expected_matches` is required for every expanded package/file operation, so missing or duplicate references abort preparation before a branch is pushed. Use `packages` only when a shared glob needs to target particular package names.
+
+```toml
+[[release.replacements]]
+files = ["registry/support/*.json"]
+for_each = "selected_packages"
+search = '"name": "{name}", "version": "{current_version}"'
+replace = '"name": "{name}", "version": "{next_version}"'
+expected_matches = 1
+
+[[release.replacements]]
+files = ["services/**/*.yaml"]
+packages = ["phlo-api"]
+search = "image: ghcr.io/acme/{name}:{current_version}"
+replace = "image: ghcr.io/acme/{name}:{next_version}"
+expected_matches = 1
+```
+
+Replacements run after version and dependency synchronization, before external transformers and lockfile refresh. Dry runs report each proposed literal substitution and its checked match count. Keep `[[release.transformers]]` for complex transformations that cannot be represented as literal substitutions.
+
 ## `[project]`
 
 - `ecosystem`: optional explicit ecosystem override; supported values are `python`, `rust`, and `go`

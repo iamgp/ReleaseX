@@ -71,6 +71,7 @@ impl Config {
         }
 
         validate_workspace_config(&self.workspace)?;
+        validate_replacements(&self.release.replacements)?;
         validate_transformers(&self.release.transformers)?;
 
         for channel in &self.channels {
@@ -195,6 +196,8 @@ pub struct ReleaseConfig {
     pub release_name: String,
     #[serde(default)]
     pub transformers: Vec<ReleaseTransformerConfig>,
+    #[serde(default)]
+    pub replacements: Vec<ReleaseReplacementConfig>,
 }
 
 impl Default for ReleaseConfig {
@@ -206,6 +209,7 @@ impl Default for ReleaseConfig {
             pr_title: default_pr_title(),
             release_name: default_release_name(),
             transformers: Vec::new(),
+            replacements: Vec::new(),
         }
     }
 }
@@ -465,8 +469,24 @@ pub struct ReleaseTransformerConfig {
     pub outputs: Vec<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReleaseReplacementConfig {
+    pub files: Vec<String>,
+    #[serde(default)]
+    pub packages: Vec<String>,
+    #[serde(default = "default_replacement_for_each")]
+    pub for_each: String,
+    pub search: String,
+    pub replace: String,
+    pub expected_matches: usize,
+}
+
 fn default_transformer_timeout_seconds() -> u64 {
     60
+}
+
+fn default_replacement_for_each() -> String {
+    "selected_packages".to_string()
 }
 
 fn default_dependency_when() -> String {
@@ -532,6 +552,96 @@ fn validate_transformers(transformers: &[ReleaseTransformerConfig]) -> Result<()
                 );
             }
         }
+    }
+    Ok(())
+}
+
+fn validate_replacements(replacements: &[ReleaseReplacementConfig]) -> Result<()> {
+    let mut declarations = std::collections::BTreeSet::new();
+    for replacement in replacements {
+        if replacement.files.is_empty()
+            || replacement.files.iter().any(|file| file.trim().is_empty())
+            || replacement.search.is_empty()
+        {
+            bail!("release replacements require non-empty files and search");
+        }
+        if replacement.search == replacement.replace {
+            bail!("release replacements must change search text");
+        }
+        if replacement.expected_matches == 0 {
+            bail!("release replacement expected_matches must be greater than zero");
+        }
+        if replacement.for_each != "selected_packages" {
+            bail!("release replacement for_each must be selected_packages");
+        }
+        let package_names = replacement
+            .packages
+            .iter()
+            .collect::<std::collections::BTreeSet<_>>();
+        if package_names.len() != replacement.packages.len()
+            || replacement
+                .packages
+                .iter()
+                .any(|package| package.trim().is_empty())
+        {
+            bail!("release replacement packages must contain unique, non-empty names");
+        }
+        for path in &replacement.files {
+            let path = Path::new(path);
+            if path.is_absolute()
+                || path
+                    .components()
+                    .any(|component| matches!(component, std::path::Component::ParentDir))
+            {
+                bail!(
+                    "release replacement paths must be workspace-relative: {}",
+                    path.display()
+                );
+            }
+        }
+        validate_replacement_template(&replacement.search)?;
+        validate_replacement_template(&replacement.replace)?;
+        for variable in template_variables(&replacement.search)
+            .into_iter()
+            .chain(template_variables(&replacement.replace))
+        {
+            if !matches!(
+                variable.as_str(),
+                "name" | "path" | "current_version" | "next_version"
+            ) {
+                bail!("unknown release replacement template variable {{{variable}}}");
+            }
+        }
+        let declaration = format!(
+            "{}\u{1f}{}\u{1f}{}\u{1f}{}\u{1f}{}\u{1f}{}",
+            replacement.files.join("\u{1e}"),
+            replacement.packages.join("\u{1e}"),
+            replacement.for_each,
+            replacement.search,
+            replacement.replace,
+            replacement.expected_matches
+        );
+        if !declarations.insert(declaration) {
+            bail!("release replacement declarations must be unique");
+        }
+    }
+    Ok(())
+}
+
+fn validate_replacement_template(template: &str) -> Result<()> {
+    let mut remainder = template;
+    while let Some(start) = remainder.find('{') {
+        let after_open = &remainder[start + 1..];
+        let Some(end) = after_open.find('}') else {
+            bail!("release replacement template contains an unclosed placeholder");
+        };
+        if after_open[..end].is_empty() {
+            bail!("release replacement template contains an empty placeholder");
+        }
+        remainder = &after_open[end + 1..];
+    }
+    if remainder.contains('}') {
+        bail!("release replacement template contains an unmatched closing brace");
     }
     Ok(())
 }
@@ -794,5 +904,24 @@ mod tests {
             vec!["defaults".to_string(), "core-services".to_string()]
         );
         assert!(config.prerelease.verify.emit_install_command);
+    }
+
+    #[test]
+    fn replacement_config_rejects_unknown_placeholders_and_unsafe_paths() {
+        for replacement in [
+            r#"files = ["support.json"]
+search = "{unknown}"
+replace = "next"
+expected_matches = 1"#,
+            r#"files = ["../support.json"]
+search = "old"
+replace = "new"
+expected_matches = 1"#,
+        ] {
+            let config: Config =
+                toml::from_str(&format!("[[release.replacements]]\n{replacement}"))
+                    .expect("config parses");
+            assert!(config.validate().is_err());
+        }
     }
 }

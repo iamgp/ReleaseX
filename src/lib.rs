@@ -10,6 +10,7 @@ pub mod github;
 pub mod prerelease;
 pub mod publish;
 pub mod pypi;
+pub mod replacements;
 pub mod version;
 pub mod version_files;
 pub mod workspace_plan;

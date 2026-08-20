@@ -12,6 +12,7 @@ mod prerelease;
 mod progress;
 mod publish;
 mod pypi;
+mod replacements;
 mod version;
 mod version_files;
 mod workspace_plan;
