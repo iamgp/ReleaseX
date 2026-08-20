@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# ReleaseX has no persistent local services. Dependencies and the Rust
+# toolchain are restored with the orb snapshot prepared by .agents/setup.
+echo 'No services need to be resumed.'

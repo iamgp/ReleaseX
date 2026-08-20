@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+step() {
+  local label="$1"
+  shift
+  local started=$SECONDS
+  printf '==> %s\n' "$label"
+  "$@"
+  printf '<== %s (%ss)\n' "$label" "$((SECONDS - started))"
+}
+
+install_system_dependencies() {
+  local packages=(build-essential ca-certificates cmake curl git perl pkg-config)
+  local missing=()
+  local package
+  local elevate=()
+
+  for package in "${packages[@]}"; do
+    if ! dpkg-query -W -f='${Status}' "$package" 2>/dev/null | grep -q 'ok installed'; then
+      missing+=("$package")
+    fi
+  done
+
+  if ((${#missing[@]} == 0)); then
+    echo 'System dependencies are already installed.'
+    return
+  fi
+
+  if ((EUID != 0)); then
+    elevate=(sudo)
+  fi
+
+  "${elevate[@]}" apt-get update
+  "${elevate[@]}" env DEBIAN_FRONTEND=noninteractive apt-get install -y "${missing[@]}"
+}
+
+install_rust() {
+  if [[ ! -x "$HOME/.cargo/bin/rustup" ]]; then
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs |
+      sh -s -- -y --profile minimal --default-toolchain none
+  fi
+
+  export PATH="$HOME/.cargo/bin:$PATH"
+  rustup toolchain install stable --profile minimal --component rustfmt,clippy
+  rustup default stable
+
+  local marker='# releasex Rust toolchain'
+  if ! grep -Fqx "$marker" "$HOME/.bash_profile" 2>/dev/null; then
+    cat >>"$HOME/.bash_profile" <<'EOF'
+
+# releasex Rust toolchain
+[[ -f "$HOME/.cargo/env" ]] && source "$HOME/.cargo/env"
+EOF
+  fi
+}
+
+fetch_dependencies() {
+  export PATH="$HOME/.cargo/bin:$PATH"
+  cargo fetch --locked
+}
+
+step 'Install system dependencies' install_system_dependencies
+step 'Install Rust stable with CI components' install_rust
+step 'Fetch locked Cargo dependencies' fetch_dependencies
+
+echo 'Orb setup complete.'
