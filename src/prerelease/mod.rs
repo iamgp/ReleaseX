@@ -197,9 +197,7 @@ fn rewrite_requirement(
     if base.contains('@') {
         bail!("direct reference for workspace dependency {dependency_name} is not allowed");
     }
-    let extras_end = base
-        .find(|ch: char| matches!(ch, '<' | '>' | '=' | '!' | '~'))
-        .unwrap_or(base.len());
+    let extras_end = base.find(['<', '>', '=', '!', '~']).unwrap_or(base.len());
     Ok(Some(format!(
         "{}{}{}",
         base[..extras_end].trim_end(),
