@@ -1,4 +1,10 @@
-use std::{collections::BTreeMap, env, fs, path::Path};
+use std::{
+    collections::BTreeMap,
+    env, fs,
+    io::{Read, Write},
+    path::Path,
+    time::{Duration, Instant},
+};
 
 use anyhow::{Context, Result, bail};
 use openssl::sha::sha256;
@@ -13,10 +19,11 @@ use crate::{
     ecosystem,
     git::{GitRepository, run_git},
     prerelease::{
-        PrereleasePackage, build_explicit_install_command, sync_root_python_workspace_dependencies,
-        validate_root_wheel_metadata,
+        PrereleasePackage, build_explicit_install_command, sync_python_workspace_dependencies,
+        sync_root_python_workspace_dependencies, validate_root_wheel_metadata,
     },
     version::Suffix,
+    workspace_plan::ReleaseWorkspacePlan,
 };
 
 fn authenticated_url(origin_url: &str, token: &str) -> String {
@@ -207,6 +214,239 @@ fn sync_prerelease_workspace_dependencies(
     )?;
 
     Ok(())
+}
+
+fn sync_workspace_dependencies(
+    repo_root: &Path,
+    config: &Config,
+    analysis: &ReleaseAnalysis,
+    base_branch: &str,
+) -> Result<()> {
+    if config.project.ecosystem != Some(Ecosystem::Python) {
+        return Ok(());
+    }
+    let workspace_plan = ReleaseWorkspacePlan::from_analysis(
+        analysis,
+        config.project.ecosystem,
+        base_branch.to_string(),
+    );
+    sync_python_workspace_dependencies(repo_root, &workspace_plan, &config.workspace.dependencies)?;
+    Ok(())
+}
+
+#[derive(Debug, Deserialize)]
+struct TransformerResult {
+    schema_version: u32,
+    #[serde(default)]
+    changed_files: Vec<String>,
+}
+
+fn run_transformers(
+    repo_root: &Path,
+    config: &Config,
+    analysis: &ReleaseAnalysis,
+    base_branch: &str,
+) -> Result<()> {
+    let plan = ReleaseWorkspacePlan::from_analysis(
+        analysis,
+        config.project.ecosystem,
+        base_branch.to_string(),
+    );
+    let plan_json = serde_json::to_vec(&plan)?;
+    for transformer in &config.release.transformers {
+        let before = workspace_snapshot(repo_root)?;
+        let mut command = std::process::Command::new(&transformer.command[0]);
+        command
+            .args(&transformer.command[1..])
+            .current_dir(repo_root)
+            .env_clear()
+            .env("PATH", "/usr/local/bin:/usr/bin:/bin")
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped());
+        let mut child = command
+            .spawn()
+            .with_context(|| format!("failed to start transformer {}", transformer.name))?;
+        let mut stdin = child
+            .stdin
+            .take()
+            .context("transformer stdin unavailable")?;
+        let writer = std::thread::spawn({
+            let plan_json = plan_json.clone();
+            move || stdin.write_all(&plan_json)
+        });
+        let stdout = child
+            .stdout
+            .take()
+            .context("transformer stdout unavailable")?;
+        let stdout_reader = std::thread::spawn(move || read_stream(stdout));
+        let stderr = child
+            .stderr
+            .take()
+            .context("transformer stderr unavailable")?;
+        let stderr_reader = std::thread::spawn(move || read_stream(stderr));
+        let deadline = Instant::now() + Duration::from_secs(transformer.timeout_seconds);
+        let status = loop {
+            if let Some(status) = child.try_wait()? {
+                break status;
+            }
+            if Instant::now() >= deadline {
+                child.kill()?;
+                child.wait()?;
+                bail!(
+                    "transformer {} timed out after {} seconds",
+                    transformer.name,
+                    transformer.timeout_seconds
+                );
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        };
+        writer
+            .join()
+            .map_err(|_| anyhow::anyhow!("transformer stdin writer panicked"))??;
+        let stdout = stdout_reader
+            .join()
+            .map_err(|_| anyhow::anyhow!("transformer stdout reader panicked"))??;
+        let stderr = stderr_reader
+            .join()
+            .map_err(|_| anyhow::anyhow!("transformer stderr reader panicked"))??;
+        if !status.success() {
+            bail!(
+                "transformer {} failed: {}",
+                transformer.name,
+                String::from_utf8_lossy(&stderr).trim()
+            );
+        }
+        let result: TransformerResult = serde_json::from_slice(&stdout).with_context(|| {
+            format!(
+                "transformer {} must emit a JSON result on stdout",
+                transformer.name
+            )
+        })?;
+        if result.schema_version != 1 {
+            bail!(
+                "transformer {} returned unsupported schema version {}",
+                transformer.name,
+                result.schema_version
+            );
+        }
+        let after = workspace_snapshot(repo_root)?;
+        let actual = changed_snapshot_paths(&before, &after);
+        let reported = result
+            .changed_files
+            .into_iter()
+            .collect::<std::collections::BTreeSet<_>>();
+        if actual != reported {
+            bail!(
+                "transformer {} reported changed files that do not match its workspace changes",
+                transformer.name
+            );
+        }
+        for path in &actual {
+            if !transformer
+                .outputs
+                .iter()
+                .any(|pattern| glob_matches(pattern, path))
+            {
+                bail!(
+                    "transformer {} modified undeclared output {}",
+                    transformer.name,
+                    path
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
+fn read_stream(mut stream: impl Read) -> Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    stream.read_to_end(&mut bytes)?;
+    Ok(bytes)
+}
+
+fn workspace_snapshot(repo_root: &Path) -> Result<BTreeMap<String, Vec<u8>>> {
+    let mut files = BTreeMap::new();
+    snapshot_directory(repo_root, repo_root, &mut files)?;
+    Ok(files)
+}
+
+fn snapshot_directory(
+    root: &Path,
+    directory: &Path,
+    files: &mut BTreeMap<String, Vec<u8>>,
+) -> Result<()> {
+    for entry in fs::read_dir(directory)? {
+        let entry = entry?;
+        let path = entry.path();
+        let file_type = entry.file_type()?;
+        if file_type.is_dir() {
+            if entry.file_name() != ".git" {
+                snapshot_directory(root, &path, files)?;
+            }
+        } else if file_type.is_file() {
+            let relative = path
+                .strip_prefix(root)?
+                .to_string_lossy()
+                .replace('\\', "/");
+            files.insert(relative, sha256(&fs::read(path)?).to_vec());
+        }
+    }
+    Ok(())
+}
+
+fn changed_snapshot_paths(
+    before: &BTreeMap<String, Vec<u8>>,
+    after: &BTreeMap<String, Vec<u8>>,
+) -> std::collections::BTreeSet<String> {
+    before
+        .keys()
+        .chain(after.keys())
+        .filter(|path| before.get(*path) != after.get(*path))
+        .cloned()
+        .collect()
+}
+
+fn glob_matches(pattern: &str, path: &str) -> bool {
+    let pattern = pattern.split('/').collect::<Vec<_>>();
+    let path = path.split('/').collect::<Vec<_>>();
+    glob_segments_match(&pattern, &path)
+}
+
+fn glob_segments_match(pattern: &[&str], path: &[&str]) -> bool {
+    match pattern {
+        [] => path.is_empty(),
+        ["**", rest @ ..] => {
+            (0..=path.len()).any(|index| glob_segments_match(rest, &path[index..]))
+        }
+        [segment, rest @ ..] => {
+            path.first()
+                .is_some_and(|part| segment_match(segment, part))
+                && glob_segments_match(rest, &path[1..])
+        }
+    }
+}
+
+fn segment_match(pattern: &str, value: &str) -> bool {
+    let parts = pattern.split('*').collect::<Vec<_>>();
+    if parts.len() == 1 {
+        return pattern == value;
+    }
+    let mut remainder = value;
+    if !pattern.starts_with('*') {
+        let first = parts[0];
+        let Some(after) = remainder.strip_prefix(first) else {
+            return false;
+        };
+        remainder = after;
+    }
+    for part in parts.iter().skip(1).take(parts.len().saturating_sub(2)) {
+        let Some(index) = remainder.find(part) else {
+            return false;
+        };
+        remainder = &remainder[index + part.len()..];
+    }
+    pattern.ends_with('*') || remainder.ends_with(parts.last().expect("non-empty glob parts"))
 }
 
 fn verify_prerelease_workspace(
@@ -711,6 +951,67 @@ pub fn execute_release_pr(
     Ok(())
 }
 
+/// Runs the complete local release-set mutation pipeline in an isolated clone.
+/// It deliberately performs no remote or GitHub operation.
+pub fn prepare_release_workspace_check(
+    repo: &GitRepository,
+    config: &Config,
+    analysis: &ReleaseAnalysis,
+) -> Result<()> {
+    let current_branch = repo.current_branch()?;
+    let plan = build_release_pr_plan(config, analysis, &current_branch)?;
+    let clone_dir = tempdir().context("failed to create temporary workspace")?;
+    let clone_path = clone_dir.path().join("repo");
+    run_git(
+        clone_dir.path(),
+        vec![
+            "clone".into(),
+            repo.path().as_os_str().to_owned(),
+            clone_path.as_os_str().to_owned(),
+        ],
+    )?;
+    run_git(
+        &clone_path,
+        [
+            "checkout",
+            "-B",
+            "relx-prepare-check",
+            format!("origin/{}", plan.base).as_str(),
+        ],
+    )?;
+
+    let selected = analysis.package_plan.selected_packages();
+    if selected.is_empty() {
+        bail!("no releasable packages found");
+    }
+    for package in selected {
+        let next_version = package
+            .next_version
+            .as_ref()
+            .context("selected package has no next version")?;
+        analysis::update_version_files(&clone_path, &package.version_files, next_version)?;
+    }
+    sync_workspace_dependencies(&clone_path, config, analysis, &plan.base)?;
+    sync_prerelease_workspace_dependencies(&clone_path, config, analysis)?;
+    run_transformers(&clone_path, config, analysis, &plan.base)?;
+    changelog::prepend_release_notes(
+        &clone_path.join(&config.release.changelog_file),
+        &plan.release_notes,
+    )?;
+    let version_files = analysis
+        .package_plan
+        .selected_packages()
+        .into_iter()
+        .flat_map(|package| package.version_files.iter().cloned())
+        .collect::<Vec<_>>();
+    if !python_prerelease_workspace_applies(config, analysis) || config.prerelease.verify.lock {
+        refresh_lockfile(&clone_path, config, &version_files)?;
+    }
+    verify_prerelease_workspace(&clone_path, config, analysis)?;
+    println!("Release workspace prepared and validated locally; no branch or PR was changed.");
+    Ok(())
+}
+
 pub fn execute_monorepo_release_pr(
     repo: &GitRepository,
     config: &Config,
@@ -784,7 +1085,9 @@ fn execute_monorepo_unified_pr(
             .context("selected package has no next version")?;
         analysis::update_version_files(&clone_path, &package.version_files, next_version)?;
     }
+    sync_workspace_dependencies(&clone_path, config, analysis, &plan.base)?;
     sync_prerelease_workspace_dependencies(&clone_path, config, analysis)?;
+    run_transformers(&clone_path, config, analysis, &plan.base)?;
     changelog::prepend_release_notes(
         &clone_path.join(&config.release.changelog_file),
         &plan.release_notes,
@@ -1067,6 +1370,23 @@ pub fn print_release_pr_dry_run(
         plan.branch, plan.base
     );
     println!("Would update version files to {}", plan.version);
+    let workspace_plan =
+        ReleaseWorkspacePlan::from_analysis(analysis, config.project.ecosystem, plan.base.clone());
+    println!("Workspace plan:");
+    println!("{}", serde_json::to_string_pretty(&workspace_plan)?);
+    if config.workspace.dependencies.enabled {
+        println!(
+            "Would synchronize {} declared workspace dependency rule(s) before refreshing lockfiles",
+            config.workspace.dependencies.rules.len()
+        );
+    }
+    for transformer in &config.release.transformers {
+        println!(
+            "Would run transformer `{}`: {}",
+            transformer.name,
+            transformer.command.join(" ")
+        );
+    }
     println!("Would prepend {} with:", config.release.changelog_file);
     println!("{}", indent_block(&plan.release_notes, "  "));
     println!(
@@ -2729,5 +3049,22 @@ mod tests {
             .status()
             .expect("command should run");
         assert!(status.success(), "command failed: {args:?}");
+    }
+
+    #[test]
+    fn output_globs_do_not_cross_path_segments_or_overlap() {
+        assert!(super::glob_matches(
+            "registry/*.json",
+            "registry/support.json"
+        ));
+        assert!(!super::glob_matches(
+            "registry/*.json",
+            "registry/nested/support.json"
+        ));
+        assert!(super::glob_matches(
+            "packages/**/service*.yaml",
+            "packages/api/src/service.yaml"
+        ));
+        assert!(!super::glob_matches("aa*aa", "aaa"));
     }
 }

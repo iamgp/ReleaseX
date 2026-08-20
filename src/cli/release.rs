@@ -209,6 +209,46 @@ pub fn run(cli: &Cli, command: &ReleaseCommand) -> Result<()> {
     let config = Config::load(&cli.config_path())?;
 
     match &command.command {
+        ReleaseSubcommand::Plan(args) => {
+            let mut analysis = analysis::analyze(&repo, &config)?;
+            let release_args = PreReleaseArgs {
+                channel: None,
+                pre_release: None,
+                finalize: false,
+            };
+            apply_channel_override(&repo, &config, &mut analysis, &release_args)?;
+            let base = channels::release_base_branch(&config, &repo.current_branch()?);
+            let plan = crate::workspace_plan::ReleaseWorkspacePlan::from_analysis(
+                &analysis,
+                config.project.ecosystem,
+                base,
+            );
+            if args.json {
+                println!("{}", serde_json::to_string_pretty(&plan)?);
+            } else {
+                println!("Release workspace plan (schema {}):", plan.schema_version);
+                for package in plan.packages {
+                    println!(
+                        "{}: {} -> {} ({})",
+                        package.name,
+                        package.current_version,
+                        package
+                            .next_version
+                            .unwrap_or_else(|| "unchanged".to_string()),
+                        package.selection_reason
+                    );
+                }
+            }
+        }
+        ReleaseSubcommand::Prepare(args) => {
+            if !args.check {
+                anyhow::bail!("release prepare currently requires --check");
+            }
+            let mut analysis = analysis::analyze(&repo, &config)?;
+            apply_channel_override(&repo, &config, &mut analysis, &args.release)?;
+            apply_pre_release_override(&config, &mut analysis, &args.release)?;
+            github::prepare_release_workspace_check(&repo, &config, &analysis)?;
+        }
         ReleaseSubcommand::Pr(args) => {
             let mut analysis = if cli.dry_run {
                 analysis::analyze(&repo, &config)?
