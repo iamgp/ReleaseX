@@ -138,17 +138,52 @@ fn rewrite_dependency_values(
                 before: before.to_string(),
                 after: after.clone(),
             });
-            replace_string_value(value, after);
+            replace_string_value(value, after)?;
             changed = true;
         }
     }
     Ok(changed)
 }
 
-fn replace_string_value(value: &mut Value, replacement: String) {
+fn replace_string_value(value: &mut Value, replacement: String) -> Result<()> {
     let decor = value.decor().clone();
-    *value = Value::from(replacement);
-    *value.decor_mut() = decor;
+    let default_repr = Value::from(&replacement).to_string();
+    let original_repr = match value {
+        Value::String(formatted) => formatted.as_repr().and_then(|repr| repr.as_raw().as_str()),
+        _ => None,
+    };
+    let repr = match original_repr {
+        Some(original) if original.starts_with("'''") && !replacement.contains("'''") => {
+            let leading_newline = multiline_leading_newline(original, "'''");
+            format!("'''{leading_newline}{replacement}'''")
+        }
+        Some(original) if original.starts_with("\"\"\"") => {
+            let leading_newline = multiline_leading_newline(original, "\"\"\"");
+            let escaped = &default_repr[1..default_repr.len() - 1];
+            format!("\"\"\"{leading_newline}{escaped}\"\"\"")
+        }
+        Some(original) if original.starts_with('\'') && !replacement.contains('\'') => {
+            format!("'{replacement}'")
+        }
+        _ => default_repr,
+    };
+    let mut updated = repr
+        .parse::<Value>()
+        .context("failed to render updated TOML dependency string")?;
+    *updated.decor_mut() = decor;
+    *value = updated;
+    Ok(())
+}
+
+fn multiline_leading_newline<'a>(repr: &'a str, delimiter: &str) -> &'a str {
+    let content = &repr[delimiter.len()..];
+    if content.starts_with("\r\n") {
+        "\r\n"
+    } else if content.starts_with('\n') {
+        "\n"
+    } else {
+        ""
+    }
 }
 
 fn path_matches(pattern: &str, value: &str) -> bool {
@@ -259,7 +294,7 @@ pub fn sync_root_python_workspace_dependencies(
             .and_then(|project| project.get_mut("dependencies"))
             .and_then(Item::as_array_mut)
     {
-        changed |= sync_dependency_array(deps, selected_versions);
+        changed |= sync_dependency_array(deps, selected_versions)?;
     }
 
     if !sync_root_extras.is_empty()
@@ -271,7 +306,7 @@ pub fn sync_root_python_workspace_dependencies(
     {
         for extra in sync_root_extras {
             if let Some(deps) = optional_deps.get_mut(extra).and_then(Item::as_array_mut) {
-                changed |= sync_dependency_array(deps, selected_versions);
+                changed |= sync_dependency_array(deps, selected_versions)?;
             }
         }
     }
@@ -284,7 +319,10 @@ pub fn sync_root_python_workspace_dependencies(
     Ok(changed)
 }
 
-fn sync_dependency_array(deps: &mut Array, selected_versions: &BTreeMap<String, String>) -> bool {
+fn sync_dependency_array(
+    deps: &mut Array,
+    selected_versions: &BTreeMap<String, String>,
+) -> Result<bool> {
     let mut changed = false;
     for dep in deps.iter_mut() {
         let Some(raw) = dep.as_str() else {
@@ -294,11 +332,11 @@ fn sync_dependency_array(deps: &mut Array, selected_versions: &BTreeMap<String, 
             continue;
         };
         if updated != raw {
-            replace_string_value(dep, updated);
+            replace_string_value(dep, updated)?;
             changed = true;
         }
     }
-    changed
+    Ok(changed)
 }
 
 fn rewrite_dependency_constraint(
@@ -437,6 +475,9 @@ test = [
   "pytest>=8",
   "core>=0.12.1,<0.13", # workspace test helper
 ]
+literal = ['core>=0.12.1,<0.13'] # retain literal quotes
+multiline = ["""
+core[cli]>=0.12.1,<0.13; python_version >= '3.11'"""]
 docs=["sphinx>=7"]
 "#;
         fs::write(
@@ -481,7 +522,7 @@ range = ">={version},<{next_minor}"
             sync_python_workspace_dependencies(dir.path(), &plan, &config).expect("sync");
         let updated = fs::read_to_string(dir.path().join("packages/provider/pyproject.toml"))
             .expect("read pyproject");
-        assert_eq!(operations.len(), 2);
+        assert_eq!(operations.len(), 4);
         assert_eq!(
             updated,
             original
