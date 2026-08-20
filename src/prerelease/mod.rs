@@ -53,12 +53,14 @@ pub fn sync_python_workspace_dependencies(
                 rule.dependency
             );
         }
-        let next_version = dependency.next_version.as_ref().with_context(|| {
-            format!(
+        let next_version = match dependency.next_version.as_ref() {
+            Some(version) => version,
+            None if rule.when == "always" => &dependency.current_version,
+            None => bail!(
                 "workspace dependency {} has no next version",
                 dependency.name
-            )
-        })?;
+            ),
+        };
         let range = render_range(&rule.range, &dependency.current_version, next_version)?;
         for dependent in dependents {
             let relative = if dependent.path == "." {
@@ -191,7 +193,7 @@ fn rewrite_requirement(
         })
         .unwrap_or(base.len());
     let name = &base[..name_end];
-    if !name.eq_ignore_ascii_case(dependency_name) {
+    if normalize_distribution_name(name) != normalize_distribution_name(dependency_name) {
         return Ok(None);
     }
     if base.contains('@') {
@@ -204,6 +206,23 @@ fn rewrite_requirement(
         range,
         marker
     )))
+}
+
+fn normalize_distribution_name(value: &str) -> String {
+    let mut normalized = String::new();
+    let mut previous_was_separator = false;
+    for ch in value.chars() {
+        if matches!(ch, '-' | '_' | '.') {
+            if !previous_was_separator {
+                normalized.push('-');
+                previous_was_separator = true;
+            }
+        } else {
+            normalized.push(ch.to_ascii_lowercase());
+            previous_was_separator = false;
+        }
+    }
+    normalized
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -456,6 +475,14 @@ range = ">={version},<{next_minor}"
         assert_eq!(operations.len(), 2);
         assert!(updated.contains("core[cli]>=0.13.0,<0.14; python_version >= '3.11'"));
         assert!(updated.contains("core>=0.13.0,<0.14"));
+    }
+
+    #[test]
+    fn normalizes_pep_503_distribution_names_when_rewriting() {
+        let updated = super::rewrite_requirement("phlo_core>=0.12", "phlo-core", ">=0.13")
+            .expect("rewrite")
+            .expect("matched dependency");
+        assert_eq!(updated, "phlo_core>=0.13");
     }
 
     #[test]

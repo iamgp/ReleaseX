@@ -84,6 +84,7 @@ range = ">={version},<{next_minor}"
 [[release.transformers]]
 name = "sync-release-manifest"
 command = ["python3", "scripts/sync_release_manifest.py"]
+timeout_seconds = 60
 inputs = ["registry/support/v1.json"]
 outputs = ["registry/support/v1.json"]
 
@@ -118,7 +119,7 @@ version_range = ">=1.0.0,<2.0.0"
 
 `[workspace.dependencies]` rewrites internal Python requirements after package versions are updated and before the lockfile refresh. Rules apply to all matching workspace packages; `when` is `dependency_selected` (the default), `dependent_selected`, or `always`. Range templates support `{version}`, `{current_version}`, `{major}`, `{minor}`, `{patch}`, `{next_major}`, and `{next_minor}`. Extras and environment markers are preserved; direct URL/path requirements are rejected.
 
-`[[release.transformers]]` runs a repository-provided command in the isolated release workspace after dependency synchronization. It receives the versioned `ReleaseWorkspacePlan` JSON on stdin and must emit `{ "schema_version": 1, "changed_files": [...] }` to stdout. Every changed path must be declared in `outputs`; transformer processes inherit only `PATH`, not credentials or the parent environment.
+`[[release.transformers]]` runs a repository-provided command in the isolated release workspace after dependency synchronization. It receives the versioned `ReleaseWorkspacePlan` JSON on stdin and must emit `{ "schema_version": 1, "changed_files": [...] }` to stdout. Every changed path must be declared in `outputs`; transformer processes inherit only `PATH`, not credentials or the parent environment. `timeout_seconds` defaults to 60 and terminates commands that exceed it.
 
 ## `[project]`
 

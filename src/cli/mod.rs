@@ -89,6 +89,8 @@ pub struct PlanArgs {
 pub struct PrepareArgs {
     #[arg(long)]
     pub check: bool,
+    #[command(flatten)]
+    pub release: PreReleaseArgs,
 }
 
 #[derive(Debug, Args)]

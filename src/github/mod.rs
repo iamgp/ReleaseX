@@ -1,4 +1,10 @@
-use std::{collections::BTreeMap, env, fs, path::Path};
+use std::{
+    collections::BTreeMap,
+    env, fs,
+    io::{Read, Write},
+    path::Path,
+    time::{Duration, Instant},
+};
 
 use anyhow::{Context, Result, bail};
 use openssl::sha::sha256;
@@ -248,7 +254,7 @@ fn run_transformers(
     );
     let plan_json = serde_json::to_vec(&plan)?;
     for transformer in &config.release.transformers {
-        let before = changed_paths(repo_root)?;
+        let before = workspace_snapshot(repo_root)?;
         let mut command = std::process::Command::new(&transformer.command[0]);
         command
             .args(&transformer.command[1..])
@@ -261,27 +267,62 @@ fn run_transformers(
         let mut child = command
             .spawn()
             .with_context(|| format!("failed to start transformer {}", transformer.name))?;
-        use std::io::Write;
-        child
+        let mut stdin = child
             .stdin
             .take()
-            .context("transformer stdin unavailable")?
-            .write_all(&plan_json)?;
-        let output = child.wait_with_output()?;
-        if !output.status.success() {
+            .context("transformer stdin unavailable")?;
+        let writer = std::thread::spawn({
+            let plan_json = plan_json.clone();
+            move || stdin.write_all(&plan_json)
+        });
+        let stdout = child
+            .stdout
+            .take()
+            .context("transformer stdout unavailable")?;
+        let stdout_reader = std::thread::spawn(move || read_stream(stdout));
+        let stderr = child
+            .stderr
+            .take()
+            .context("transformer stderr unavailable")?;
+        let stderr_reader = std::thread::spawn(move || read_stream(stderr));
+        let deadline = Instant::now() + Duration::from_secs(transformer.timeout_seconds);
+        let status = loop {
+            if let Some(status) = child.try_wait()? {
+                break status;
+            }
+            if Instant::now() >= deadline {
+                child.kill()?;
+                child.wait()?;
+                bail!(
+                    "transformer {} timed out after {} seconds",
+                    transformer.name,
+                    transformer.timeout_seconds
+                );
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        };
+        writer
+            .join()
+            .map_err(|_| anyhow::anyhow!("transformer stdin writer panicked"))??;
+        let stdout = stdout_reader
+            .join()
+            .map_err(|_| anyhow::anyhow!("transformer stdout reader panicked"))??;
+        let stderr = stderr_reader
+            .join()
+            .map_err(|_| anyhow::anyhow!("transformer stderr reader panicked"))??;
+        if !status.success() {
             bail!(
                 "transformer {} failed: {}",
                 transformer.name,
-                String::from_utf8_lossy(&output.stderr).trim()
+                String::from_utf8_lossy(&stderr).trim()
             );
         }
-        let result: TransformerResult =
-            serde_json::from_slice(&output.stdout).with_context(|| {
-                format!(
-                    "transformer {} must emit a JSON result on stdout",
-                    transformer.name
-                )
-            })?;
+        let result: TransformerResult = serde_json::from_slice(&stdout).with_context(|| {
+            format!(
+                "transformer {} must emit a JSON result on stdout",
+                transformer.name
+            )
+        })?;
         if result.schema_version != 1 {
             bail!(
                 "transformer {} returned unsupported schema version {}",
@@ -289,12 +330,13 @@ fn run_transformers(
                 result.schema_version
             );
         }
-        let after = changed_paths(repo_root)?;
-        let actual = after
+        let after = workspace_snapshot(repo_root)?;
+        let actual = changed_snapshot_paths(&before, &after);
+        let reported = result
+            .changed_files
             .into_iter()
-            .filter(|path| !before.contains(path))
-            .collect::<Vec<_>>();
-        if actual != result.changed_files {
+            .collect::<std::collections::BTreeSet<_>>();
+        if actual != reported {
             bail!(
                 "transformer {} reported changed files that do not match its workspace changes",
                 transformer.name
@@ -317,19 +359,94 @@ fn run_transformers(
     Ok(())
 }
 
-fn changed_paths(repo_root: &Path) -> Result<Vec<String>> {
-    Ok(run_git(repo_root, ["status", "--porcelain"])?
-        .lines()
-        .filter_map(|line| line.get(3..))
-        .map(|path| path.to_string())
-        .collect())
+fn read_stream(mut stream: impl Read) -> Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    stream.read_to_end(&mut bytes)?;
+    Ok(bytes)
+}
+
+fn workspace_snapshot(repo_root: &Path) -> Result<BTreeMap<String, Vec<u8>>> {
+    let mut files = BTreeMap::new();
+    snapshot_directory(repo_root, repo_root, &mut files)?;
+    Ok(files)
+}
+
+fn snapshot_directory(
+    root: &Path,
+    directory: &Path,
+    files: &mut BTreeMap<String, Vec<u8>>,
+) -> Result<()> {
+    for entry in fs::read_dir(directory)? {
+        let entry = entry?;
+        let path = entry.path();
+        let file_type = entry.file_type()?;
+        if file_type.is_dir() {
+            if entry.file_name() != ".git" {
+                snapshot_directory(root, &path, files)?;
+            }
+        } else if file_type.is_file() {
+            let relative = path
+                .strip_prefix(root)?
+                .to_string_lossy()
+                .replace('\\', "/");
+            files.insert(relative, sha256(&fs::read(path)?).to_vec());
+        }
+    }
+    Ok(())
+}
+
+fn changed_snapshot_paths(
+    before: &BTreeMap<String, Vec<u8>>,
+    after: &BTreeMap<String, Vec<u8>>,
+) -> std::collections::BTreeSet<String> {
+    before
+        .keys()
+        .chain(after.keys())
+        .filter(|path| before.get(*path) != after.get(*path))
+        .cloned()
+        .collect()
 }
 
 fn glob_matches(pattern: &str, path: &str) -> bool {
-    pattern == path
-        || pattern
-            .split_once('*')
-            .is_some_and(|(start, end)| path.starts_with(start) && path.ends_with(end))
+    let pattern = pattern.split('/').collect::<Vec<_>>();
+    let path = path.split('/').collect::<Vec<_>>();
+    glob_segments_match(&pattern, &path)
+}
+
+fn glob_segments_match(pattern: &[&str], path: &[&str]) -> bool {
+    match pattern {
+        [] => path.is_empty(),
+        ["**", rest @ ..] => {
+            (0..=path.len()).any(|index| glob_segments_match(rest, &path[index..]))
+        }
+        [segment, rest @ ..] => {
+            path.first()
+                .is_some_and(|part| segment_match(segment, part))
+                && glob_segments_match(rest, &path[1..])
+        }
+    }
+}
+
+fn segment_match(pattern: &str, value: &str) -> bool {
+    let parts = pattern.split('*').collect::<Vec<_>>();
+    if parts.len() == 1 {
+        return pattern == value;
+    }
+    let mut remainder = value;
+    if !pattern.starts_with('*') {
+        let first = parts[0];
+        let Some(after) = remainder.strip_prefix(first) else {
+            return false;
+        };
+        remainder = after;
+    }
+    for part in parts.iter().skip(1).take(parts.len().saturating_sub(2)) {
+        let Some(index) = remainder.find(part) else {
+            return false;
+        };
+        remainder = &remainder[index + part.len()..];
+    }
+    pattern.ends_with('*') || remainder.ends_with(parts.last().expect("non-empty glob parts"))
 }
 
 fn verify_prerelease_workspace(
@@ -887,7 +1004,9 @@ pub fn prepare_release_workspace_check(
         .into_iter()
         .flat_map(|package| package.version_files.iter().cloned())
         .collect::<Vec<_>>();
-    refresh_lockfile(&clone_path, config, &version_files)?;
+    if !python_prerelease_workspace_applies(config, analysis) || config.prerelease.verify.lock {
+        refresh_lockfile(&clone_path, config, &version_files)?;
+    }
     verify_prerelease_workspace(&clone_path, config, analysis)?;
     println!("Release workspace prepared and validated locally; no branch or PR was changed.");
     Ok(())
@@ -2930,5 +3049,22 @@ mod tests {
             .status()
             .expect("command should run");
         assert!(status.success(), "command failed: {args:?}");
+    }
+
+    #[test]
+    fn output_globs_do_not_cross_path_segments_or_overlap() {
+        assert!(super::glob_matches(
+            "registry/*.json",
+            "registry/support.json"
+        ));
+        assert!(!super::glob_matches(
+            "registry/*.json",
+            "registry/nested/support.json"
+        ));
+        assert!(super::glob_matches(
+            "packages/**/service*.yaml",
+            "packages/api/src/service.yaml"
+        ));
+        assert!(!super::glob_matches("aa*aa", "aaa"));
     }
 }

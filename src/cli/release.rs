@@ -210,8 +210,14 @@ pub fn run(cli: &Cli, command: &ReleaseCommand) -> Result<()> {
 
     match &command.command {
         ReleaseSubcommand::Plan(args) => {
-            let analysis = analysis::analyze(&repo, &config)?;
-            let base = repo.current_branch()?;
+            let mut analysis = analysis::analyze(&repo, &config)?;
+            let release_args = PreReleaseArgs {
+                channel: None,
+                pre_release: None,
+                finalize: false,
+            };
+            apply_channel_override(&repo, &config, &mut analysis, &release_args)?;
+            let base = channels::release_base_branch(&config, &repo.current_branch()?);
             let plan = crate::workspace_plan::ReleaseWorkspacePlan::from_analysis(
                 &analysis,
                 config.project.ecosystem,
@@ -239,12 +245,8 @@ pub fn run(cli: &Cli, command: &ReleaseCommand) -> Result<()> {
                 anyhow::bail!("release prepare currently requires --check");
             }
             let mut analysis = analysis::analyze(&repo, &config)?;
-            let release_args = PreReleaseArgs {
-                channel: None,
-                pre_release: None,
-                finalize: false,
-            };
-            apply_channel_override(&repo, &config, &mut analysis, &release_args)?;
+            apply_channel_override(&repo, &config, &mut analysis, &args.release)?;
+            apply_pre_release_override(&config, &mut analysis, &args.release)?;
             github::prepare_release_workspace_check(&repo, &config, &analysis)?;
         }
         ReleaseSubcommand::Pr(args) => {

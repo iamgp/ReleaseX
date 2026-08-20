@@ -457,10 +457,16 @@ pub struct WorkspaceDependencyRule {
 pub struct ReleaseTransformerConfig {
     pub name: String,
     pub command: Vec<String>,
+    #[serde(default = "default_transformer_timeout_seconds")]
+    pub timeout_seconds: u64,
     #[serde(default)]
     pub inputs: Vec<String>,
     #[serde(default)]
     pub outputs: Vec<String>,
+}
+
+fn default_transformer_timeout_seconds() -> u64 {
+    60
 }
 
 fn default_dependency_when() -> String {
@@ -503,6 +509,9 @@ fn validate_transformers(transformers: &[ReleaseTransformerConfig]) -> Result<()
     for transformer in transformers {
         if transformer.name.trim().is_empty() || transformer.command.is_empty() {
             bail!("release transformers require a unique name and non-empty command");
+        }
+        if transformer.timeout_seconds == 0 {
+            bail!("release transformer timeout_seconds must be greater than zero");
         }
         if !names.insert(&transformer.name) {
             bail!(
