@@ -1,6 +1,7 @@
 use std::{collections::BTreeMap, fs, path::Path};
 
 use anyhow::{Context, Result, bail};
+use toml_edit::{Array, DocumentMut, Item, Value};
 
 use crate::{config::WorkspaceDependenciesConfig, workspace_plan::ReleaseWorkspacePlan};
 
@@ -75,19 +76,13 @@ pub fn sync_python_workspace_dependencies(
             let raw = fs::read_to_string(&path)
                 .with_context(|| format!("failed to read {}", path.display()))?;
             let mut parsed = raw
-                .parse::<toml::Table>()
+                .parse::<DocumentMut>()
                 .with_context(|| format!("failed to parse {}", path.display()))?;
             let mut changed = false;
-            let Some(project) = parsed
-                .get_mut("project")
-                .and_then(toml::Value::as_table_mut)
-            else {
+            let Some(project) = parsed.get_mut("project").and_then(Item::as_table_like_mut) else {
                 continue;
             };
-            if let Some(deps) = project
-                .get_mut("dependencies")
-                .and_then(toml::Value::as_array_mut)
-            {
+            if let Some(deps) = project.get_mut("dependencies").and_then(Item::as_array_mut) {
                 changed |= rewrite_dependency_values(
                     deps,
                     &relative,
@@ -98,11 +93,11 @@ pub fn sync_python_workspace_dependencies(
             }
             if let Some(extras) = project
                 .get_mut("optional-dependencies")
-                .and_then(toml::Value::as_table_mut)
+                .and_then(Item::as_table_like_mut)
             {
                 for (_, deps) in extras
                     .iter_mut()
-                    .filter_map(|(name, value)| value.as_array_mut().map(|deps| (name, deps)))
+                    .filter_map(|(name, item)| item.as_array_mut().map(|deps| (name, deps)))
                 {
                     changed |= rewrite_dependency_values(
                         deps,
@@ -114,7 +109,7 @@ pub fn sync_python_workspace_dependencies(
                 }
             }
             if changed {
-                fs::write(&path, toml::to_string_pretty(&parsed)?)
+                fs::write(&path, parsed.to_string())
                     .with_context(|| format!("failed to write {}", path.display()))?;
             }
         }
@@ -123,14 +118,14 @@ pub fn sync_python_workspace_dependencies(
 }
 
 fn rewrite_dependency_values(
-    deps: &mut Vec<toml::Value>,
+    deps: &mut Array,
     path: &str,
     dependency: &str,
     range: &str,
     operations: &mut Vec<DependencyOperation>,
 ) -> Result<bool> {
     let mut changed = false;
-    for value in deps {
+    for value in deps.iter_mut() {
         let Some(before) = value.as_str() else {
             continue;
         };
@@ -143,11 +138,17 @@ fn rewrite_dependency_values(
                 before: before.to_string(),
                 after: after.clone(),
             });
-            *value = toml::Value::String(after);
+            replace_string_value(value, after);
             changed = true;
         }
     }
     Ok(changed)
+}
+
+fn replace_string_value(value: &mut Value, replacement: String) {
+    let decor = value.decor().clone();
+    *value = Value::from(replacement);
+    *value.decor_mut() = decor;
 }
 
 fn path_matches(pattern: &str, value: &str) -> bool {
@@ -247,16 +248,16 @@ pub fn sync_root_python_workspace_dependencies(
     let raw = fs::read_to_string(&pyproject_path)
         .with_context(|| format!("failed to read {}", pyproject_path.display()))?;
     let mut parsed = raw
-        .parse::<toml::Table>()
+        .parse::<DocumentMut>()
         .with_context(|| format!("failed to parse {}", pyproject_path.display()))?;
 
     let mut changed = false;
     if sync_root_dependencies
         && let Some(deps) = parsed
             .get_mut("project")
-            .and_then(toml::Value::as_table_mut)
+            .and_then(Item::as_table_like_mut)
             .and_then(|project| project.get_mut("dependencies"))
-            .and_then(toml::Value::as_array_mut)
+            .and_then(Item::as_array_mut)
     {
         changed |= sync_dependency_array(deps, selected_versions);
     }
@@ -264,34 +265,28 @@ pub fn sync_root_python_workspace_dependencies(
     if !sync_root_extras.is_empty()
         && let Some(optional_deps) = parsed
             .get_mut("project")
-            .and_then(toml::Value::as_table_mut)
+            .and_then(Item::as_table_like_mut)
             .and_then(|project| project.get_mut("optional-dependencies"))
-            .and_then(toml::Value::as_table_mut)
+            .and_then(Item::as_table_like_mut)
     {
         for extra in sync_root_extras {
-            if let Some(deps) = optional_deps
-                .get_mut(extra)
-                .and_then(toml::Value::as_array_mut)
-            {
+            if let Some(deps) = optional_deps.get_mut(extra).and_then(Item::as_array_mut) {
                 changed |= sync_dependency_array(deps, selected_versions);
             }
         }
     }
 
     if changed {
-        fs::write(&pyproject_path, toml::to_string_pretty(&parsed)?)
+        fs::write(&pyproject_path, parsed.to_string())
             .with_context(|| format!("failed to write {}", pyproject_path.display()))?;
     }
 
     Ok(changed)
 }
 
-fn sync_dependency_array(
-    deps: &mut Vec<toml::Value>,
-    selected_versions: &BTreeMap<String, String>,
-) -> bool {
+fn sync_dependency_array(deps: &mut Array, selected_versions: &BTreeMap<String, String>) -> bool {
     let mut changed = false;
-    for dep in deps {
+    for dep in deps.iter_mut() {
         let Some(raw) = dep.as_str() else {
             continue;
         };
@@ -299,7 +294,7 @@ fn sync_dependency_array(
             continue;
         };
         if updated != raw {
-            *dep = toml::Value::String(updated);
+            replace_string_value(dep, updated);
             changed = true;
         }
     }
@@ -422,17 +417,31 @@ mod tests {
     };
 
     #[test]
-    fn syncs_bounded_workspace_requirements_with_extras_and_markers() {
+    fn generalized_sync_preserves_pyproject_formatting_and_comments() {
         let dir = tempdir().expect("tempdir");
         fs::create_dir_all(dir.path().join("packages/provider")).expect("provider dir");
+        let original = r#"# Provider package manifest
+[build-system]
+requires=["hatchling"] # compact layout is intentional
+
+[project]
+name = "provider"
+# Keep runtime dependencies grouped in this order.
+dependencies = [
+    "httpx>=0.27", # external dependency
+    "core[cli]>=0.12.1,<0.13; python_version >= '3.11'", # workspace dependency
+]
+
+[project.optional-dependencies]
+test = [
+  "pytest>=8",
+  "core>=0.12.1,<0.13", # workspace test helper
+]
+docs=["sphinx>=7"]
+"#;
         fs::write(
             dir.path().join("packages/provider/pyproject.toml"),
-            r#"
-[project]
-dependencies = ["core[cli]>=0.12.1,<0.13; python_version >= '3.11'"]
-[project.optional-dependencies]
-test = ["core>=0.12.1,<0.13"]
-"#,
+            original,
         )
         .expect("write pyproject");
         let plan = ReleaseWorkspacePlan {
@@ -473,8 +482,15 @@ range = ">={version},<{next_minor}"
         let updated = fs::read_to_string(dir.path().join("packages/provider/pyproject.toml"))
             .expect("read pyproject");
         assert_eq!(operations.len(), 2);
-        assert!(updated.contains("core[cli]>=0.13.0,<0.14; python_version >= '3.11'"));
-        assert!(updated.contains("core>=0.13.0,<0.14"));
+        assert_eq!(
+            updated,
+            original
+                .replace(
+                    "core[cli]>=0.12.1,<0.13; python_version >= '3.11'",
+                    "core[cli]>=0.13.0,<0.14; python_version >= '3.11'",
+                )
+                .replace("core>=0.12.1,<0.13", "core>=0.13.0,<0.14")
+        );
     }
 
     #[test]
@@ -486,36 +502,46 @@ range = ">={version},<{next_minor}"
     }
 
     #[test]
-    fn syncs_root_dependencies_and_configured_extras_to_selected_beta_versions() {
+    fn generalized_sync_rejects_pep_508_direct_references() {
+        let error = super::rewrite_requirement(
+            "core[cli] @ git+https://example.com/core.git; python_version >= '3.11'",
+            "core",
+            ">=0.13",
+        )
+        .expect_err("direct references must be rejected");
+
+        assert_eq!(
+            error.to_string(),
+            "direct reference for workspace dependency core is not allowed"
+        );
+    }
+
+    #[test]
+    fn prerelease_root_sync_preserves_pyproject_formatting_and_comments() {
         let dir = tempdir().expect("tempdir");
         let pyproject = dir.path().join("pyproject.toml");
-        fs::write(
-            &pyproject,
-            r#"
+        let original = r#"# Root distribution for the workspace
 [project]
 name = "phlo"
 version = "0.8.1b5"
 dependencies = [
-  "phlo-core>=0.1.0",
-  "phlo-iceberg>=0.1.0; python_version >= '3.11'",
-  "sqlalchemy>=2.0",
+  "phlo-core>=0.1.0", # unchanged workspace package
+  "phlo-iceberg>=0.1.0; python_version >= '3.11'", # selected package
+  "sqlalchemy>=2.0", # third party
 ]
 
 [project.optional-dependencies]
 defaults = [
-  "phlo-iceberg>=0.1.0",
+  "phlo-iceberg>=0.1.0", # selected extra
   "phlo-dagster>=0.3.1b2",
   "duckdb>=1.0",
 ]
-core-services = [
-  "phlo-minio>=0.1.0",
-]
+core-services = [ "phlo-minio>=0.1.0" ] # compact array
 docs = [
   "phlo-iceberg>=0.1.0",
 ]
-"#,
-        )
-        .expect("write pyproject");
+"#;
+        fs::write(&pyproject, original).expect("write pyproject");
         let packages = BTreeMap::from([
             ("phlo-iceberg".to_string(), "0.3.1b1".to_string()),
             ("phlo-minio".to_string(), "0.3.1b1".to_string()),
@@ -531,12 +557,16 @@ docs = [
 
         let updated = fs::read_to_string(&pyproject).expect("read updated pyproject");
         assert!(changed);
-        assert!(updated.contains("\"phlo-iceberg>=0.3.1b1; python_version >= '3.11'\""));
-        assert!(updated.contains("\"phlo-iceberg>=0.3.1b1\""));
-        assert!(updated.contains("\"phlo-minio>=0.3.1b1\""));
-        assert!(updated.contains("\"phlo-dagster>=0.3.1b2\""));
-        assert!(updated.contains("\"sqlalchemy>=2.0\""));
-        assert!(updated.contains("\"phlo-iceberg>=0.1.0\""));
+        assert_eq!(
+            updated,
+            original
+                .replace(
+                    "phlo-iceberg>=0.1.0; python_version >= '3.11'",
+                    "phlo-iceberg>=0.3.1b1; python_version >= '3.11'",
+                )
+                .replacen("phlo-iceberg>=0.1.0", "phlo-iceberg>=0.3.1b1", 1)
+                .replace("phlo-minio>=0.1.0", "phlo-minio>=0.3.1b1")
+        );
     }
 
     #[test]
