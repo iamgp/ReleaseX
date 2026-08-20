@@ -13,10 +13,11 @@ use crate::{
     ecosystem,
     git::{GitRepository, run_git},
     prerelease::{
-        PrereleasePackage, build_explicit_install_command, sync_root_python_workspace_dependencies,
-        validate_root_wheel_metadata,
+        PrereleasePackage, build_explicit_install_command, sync_python_workspace_dependencies,
+        sync_root_python_workspace_dependencies, validate_root_wheel_metadata,
     },
     version::Suffix,
+    workspace_plan::ReleaseWorkspacePlan,
 };
 
 fn authenticated_url(origin_url: &str, token: &str) -> String {
@@ -207,6 +208,128 @@ fn sync_prerelease_workspace_dependencies(
     )?;
 
     Ok(())
+}
+
+fn sync_workspace_dependencies(
+    repo_root: &Path,
+    config: &Config,
+    analysis: &ReleaseAnalysis,
+    base_branch: &str,
+) -> Result<()> {
+    if config.project.ecosystem != Some(Ecosystem::Python) {
+        return Ok(());
+    }
+    let workspace_plan = ReleaseWorkspacePlan::from_analysis(
+        analysis,
+        config.project.ecosystem,
+        base_branch.to_string(),
+    );
+    sync_python_workspace_dependencies(repo_root, &workspace_plan, &config.workspace.dependencies)?;
+    Ok(())
+}
+
+#[derive(Debug, Deserialize)]
+struct TransformerResult {
+    schema_version: u32,
+    #[serde(default)]
+    changed_files: Vec<String>,
+}
+
+fn run_transformers(
+    repo_root: &Path,
+    config: &Config,
+    analysis: &ReleaseAnalysis,
+    base_branch: &str,
+) -> Result<()> {
+    let plan = ReleaseWorkspacePlan::from_analysis(
+        analysis,
+        config.project.ecosystem,
+        base_branch.to_string(),
+    );
+    let plan_json = serde_json::to_vec(&plan)?;
+    for transformer in &config.release.transformers {
+        let before = changed_paths(repo_root)?;
+        let mut command = std::process::Command::new(&transformer.command[0]);
+        command
+            .args(&transformer.command[1..])
+            .current_dir(repo_root)
+            .env_clear()
+            .env("PATH", "/usr/local/bin:/usr/bin:/bin")
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped());
+        let mut child = command
+            .spawn()
+            .with_context(|| format!("failed to start transformer {}", transformer.name))?;
+        use std::io::Write;
+        child
+            .stdin
+            .take()
+            .context("transformer stdin unavailable")?
+            .write_all(&plan_json)?;
+        let output = child.wait_with_output()?;
+        if !output.status.success() {
+            bail!(
+                "transformer {} failed: {}",
+                transformer.name,
+                String::from_utf8_lossy(&output.stderr).trim()
+            );
+        }
+        let result: TransformerResult =
+            serde_json::from_slice(&output.stdout).with_context(|| {
+                format!(
+                    "transformer {} must emit a JSON result on stdout",
+                    transformer.name
+                )
+            })?;
+        if result.schema_version != 1 {
+            bail!(
+                "transformer {} returned unsupported schema version {}",
+                transformer.name,
+                result.schema_version
+            );
+        }
+        let after = changed_paths(repo_root)?;
+        let actual = after
+            .into_iter()
+            .filter(|path| !before.contains(path))
+            .collect::<Vec<_>>();
+        if actual != result.changed_files {
+            bail!(
+                "transformer {} reported changed files that do not match its workspace changes",
+                transformer.name
+            );
+        }
+        for path in &actual {
+            if !transformer
+                .outputs
+                .iter()
+                .any(|pattern| glob_matches(pattern, path))
+            {
+                bail!(
+                    "transformer {} modified undeclared output {}",
+                    transformer.name,
+                    path
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
+fn changed_paths(repo_root: &Path) -> Result<Vec<String>> {
+    Ok(run_git(repo_root, ["status", "--porcelain"])?
+        .lines()
+        .filter_map(|line| line.get(3..))
+        .map(|path| path.to_string())
+        .collect())
+}
+
+fn glob_matches(pattern: &str, path: &str) -> bool {
+    pattern == path
+        || pattern
+            .split_once('*')
+            .is_some_and(|(start, end)| path.starts_with(start) && path.ends_with(end))
 }
 
 fn verify_prerelease_workspace(
@@ -711,6 +834,65 @@ pub fn execute_release_pr(
     Ok(())
 }
 
+/// Runs the complete local release-set mutation pipeline in an isolated clone.
+/// It deliberately performs no remote or GitHub operation.
+pub fn prepare_release_workspace_check(
+    repo: &GitRepository,
+    config: &Config,
+    analysis: &ReleaseAnalysis,
+) -> Result<()> {
+    let current_branch = repo.current_branch()?;
+    let plan = build_release_pr_plan(config, analysis, &current_branch)?;
+    let clone_dir = tempdir().context("failed to create temporary workspace")?;
+    let clone_path = clone_dir.path().join("repo");
+    run_git(
+        clone_dir.path(),
+        vec![
+            "clone".into(),
+            repo.path().as_os_str().to_owned(),
+            clone_path.as_os_str().to_owned(),
+        ],
+    )?;
+    run_git(
+        &clone_path,
+        [
+            "checkout",
+            "-B",
+            "relx-prepare-check",
+            format!("origin/{}", plan.base).as_str(),
+        ],
+    )?;
+
+    let selected = analysis.package_plan.selected_packages();
+    if selected.is_empty() {
+        bail!("no releasable packages found");
+    }
+    for package in selected {
+        let next_version = package
+            .next_version
+            .as_ref()
+            .context("selected package has no next version")?;
+        analysis::update_version_files(&clone_path, &package.version_files, next_version)?;
+    }
+    sync_workspace_dependencies(&clone_path, config, analysis, &plan.base)?;
+    sync_prerelease_workspace_dependencies(&clone_path, config, analysis)?;
+    run_transformers(&clone_path, config, analysis, &plan.base)?;
+    changelog::prepend_release_notes(
+        &clone_path.join(&config.release.changelog_file),
+        &plan.release_notes,
+    )?;
+    let version_files = analysis
+        .package_plan
+        .selected_packages()
+        .into_iter()
+        .flat_map(|package| package.version_files.iter().cloned())
+        .collect::<Vec<_>>();
+    refresh_lockfile(&clone_path, config, &version_files)?;
+    verify_prerelease_workspace(&clone_path, config, analysis)?;
+    println!("Release workspace prepared and validated locally; no branch or PR was changed.");
+    Ok(())
+}
+
 pub fn execute_monorepo_release_pr(
     repo: &GitRepository,
     config: &Config,
@@ -784,7 +966,9 @@ fn execute_monorepo_unified_pr(
             .context("selected package has no next version")?;
         analysis::update_version_files(&clone_path, &package.version_files, next_version)?;
     }
+    sync_workspace_dependencies(&clone_path, config, analysis, &plan.base)?;
     sync_prerelease_workspace_dependencies(&clone_path, config, analysis)?;
+    run_transformers(&clone_path, config, analysis, &plan.base)?;
     changelog::prepend_release_notes(
         &clone_path.join(&config.release.changelog_file),
         &plan.release_notes,
@@ -1067,6 +1251,23 @@ pub fn print_release_pr_dry_run(
         plan.branch, plan.base
     );
     println!("Would update version files to {}", plan.version);
+    let workspace_plan =
+        ReleaseWorkspacePlan::from_analysis(analysis, config.project.ecosystem, plan.base.clone());
+    println!("Workspace plan:");
+    println!("{}", serde_json::to_string_pretty(&workspace_plan)?);
+    if config.workspace.dependencies.enabled {
+        println!(
+            "Would synchronize {} declared workspace dependency rule(s) before refreshing lockfiles",
+            config.workspace.dependencies.rules.len()
+        );
+    }
+    for transformer in &config.release.transformers {
+        println!(
+            "Would run transformer `{}`: {}",
+            transformer.name,
+            transformer.command.join(" ")
+        );
+    }
     println!("Would prepend {} with:", config.release.changelog_file);
     println!("{}", indent_block(&plan.release_notes, "  "));
     println!(

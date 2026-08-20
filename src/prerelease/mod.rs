@@ -2,6 +2,212 @@ use std::{collections::BTreeMap, fs, path::Path};
 
 use anyhow::{Context, Result, bail};
 
+use crate::{config::WorkspaceDependenciesConfig, workspace_plan::ReleaseWorkspacePlan};
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DependencyOperation {
+    pub path: String,
+    pub before: String,
+    pub after: String,
+}
+
+pub fn sync_python_workspace_dependencies(
+    repo_root: &Path,
+    plan: &ReleaseWorkspacePlan,
+    dependencies: &WorkspaceDependenciesConfig,
+) -> Result<Vec<DependencyOperation>> {
+    if !dependencies.enabled {
+        return Ok(Vec::new());
+    }
+
+    let mut operations = Vec::new();
+    for rule in &dependencies.rules {
+        let dependency = plan
+            .packages
+            .iter()
+            .find(|package| package.name == rule.dependency)
+            .with_context(|| {
+                format!(
+                    "workspace dependency rule references unknown package {}",
+                    rule.dependency
+                )
+            })?;
+        if rule.when == "dependency_selected" && !dependency.selected {
+            continue;
+        }
+        let dependents = plan
+            .packages
+            .iter()
+            .filter(|package| {
+                !rule.dependents.is_empty()
+                    && rule
+                        .dependents
+                        .iter()
+                        .any(|pattern| path_matches(pattern, &package.path))
+                    && (rule.when != "dependent_selected" || package.selected)
+            })
+            .collect::<Vec<_>>();
+        if dependents.is_empty() {
+            bail!(
+                "workspace dependency rule for {} matched no dependents",
+                rule.dependency
+            );
+        }
+        let next_version = dependency.next_version.as_ref().with_context(|| {
+            format!(
+                "workspace dependency {} has no next version",
+                dependency.name
+            )
+        })?;
+        let range = render_range(&rule.range, &dependency.current_version, next_version)?;
+        for dependent in dependents {
+            let relative = if dependent.path == "." {
+                "pyproject.toml".to_string()
+            } else {
+                format!("{}/pyproject.toml", dependent.path)
+            };
+            let path = repo_root.join(&relative);
+            if !path.exists() {
+                continue;
+            }
+            let raw = fs::read_to_string(&path)
+                .with_context(|| format!("failed to read {}", path.display()))?;
+            let mut parsed = raw
+                .parse::<toml::Table>()
+                .with_context(|| format!("failed to parse {}", path.display()))?;
+            let mut changed = false;
+            let Some(project) = parsed
+                .get_mut("project")
+                .and_then(toml::Value::as_table_mut)
+            else {
+                continue;
+            };
+            if let Some(deps) = project
+                .get_mut("dependencies")
+                .and_then(toml::Value::as_array_mut)
+            {
+                changed |= rewrite_dependency_values(
+                    deps,
+                    &relative,
+                    &rule.dependency,
+                    &range,
+                    &mut operations,
+                )?;
+            }
+            if let Some(extras) = project
+                .get_mut("optional-dependencies")
+                .and_then(toml::Value::as_table_mut)
+            {
+                for (_, deps) in extras
+                    .iter_mut()
+                    .filter_map(|(name, value)| value.as_array_mut().map(|deps| (name, deps)))
+                {
+                    changed |= rewrite_dependency_values(
+                        deps,
+                        &relative,
+                        &rule.dependency,
+                        &range,
+                        &mut operations,
+                    )?;
+                }
+            }
+            if changed {
+                fs::write(&path, toml::to_string_pretty(&parsed)?)
+                    .with_context(|| format!("failed to write {}", path.display()))?;
+            }
+        }
+    }
+    Ok(operations)
+}
+
+fn rewrite_dependency_values(
+    deps: &mut Vec<toml::Value>,
+    path: &str,
+    dependency: &str,
+    range: &str,
+    operations: &mut Vec<DependencyOperation>,
+) -> Result<bool> {
+    let mut changed = false;
+    for value in deps {
+        let Some(before) = value.as_str() else {
+            continue;
+        };
+        let Some(after) = rewrite_requirement(before, dependency, range)? else {
+            continue;
+        };
+        if after != before {
+            operations.push(DependencyOperation {
+                path: path.to_string(),
+                before: before.to_string(),
+                after: after.clone(),
+            });
+            *value = toml::Value::String(after);
+            changed = true;
+        }
+    }
+    Ok(changed)
+}
+
+fn path_matches(pattern: &str, value: &str) -> bool {
+    if pattern == value {
+        return true;
+    }
+    let parts = pattern.split('*').collect::<Vec<_>>();
+    if parts.len() == 2 {
+        return value.starts_with(parts[0]) && value.ends_with(parts[1]);
+    }
+    false
+}
+
+fn render_range(template: &str, current: &str, version: &str) -> Result<String> {
+    let parsed: crate::version::Version = version.parse()?;
+    Ok(template
+        .replace("{version}", version)
+        .replace("{current_version}", current)
+        .replace("{major}", &parsed.major.to_string())
+        .replace("{minor}", &parsed.minor.to_string())
+        .replace("{patch}", &parsed.patch.to_string())
+        .replace("{next_major}", &(parsed.major + 1).to_string())
+        .replace(
+            "{next_minor}",
+            &format!("{}.{}", parsed.major, parsed.minor + 1),
+        ))
+}
+
+fn rewrite_requirement(
+    requirement: &str,
+    dependency_name: &str,
+    range: &str,
+) -> Result<Option<String>> {
+    let marker_start = requirement.find(';');
+    let (base, marker) = match marker_start {
+        Some(index) => (&requirement[..index], &requirement[index..]),
+        None => (requirement, ""),
+    };
+    let name_end = base
+        .char_indices()
+        .find_map(|(index, ch)| {
+            matches!(ch, '[' | ' ' | '\t' | '<' | '>' | '=' | '!' | '~' | '@').then_some(index)
+        })
+        .unwrap_or(base.len());
+    let name = &base[..name_end];
+    if !name.eq_ignore_ascii_case(dependency_name) {
+        return Ok(None);
+    }
+    if base.contains('@') {
+        bail!("direct reference for workspace dependency {dependency_name} is not allowed");
+    }
+    let extras_end = base
+        .find(|ch: char| matches!(ch, '<' | '>' | '=' | '!' | '~'))
+        .unwrap_or(base.len());
+    Ok(Some(format!(
+        "{}{}{}",
+        base[..extras_end].trim_end(),
+        range,
+        marker
+    )))
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PrereleasePackage {
     pub name: String,
@@ -190,9 +396,69 @@ mod tests {
     use tempfile::tempdir;
 
     use super::{
-        PrereleasePackage, build_explicit_install_command, sync_root_python_workspace_dependencies,
-        validate_root_wheel_metadata,
+        PrereleasePackage, build_explicit_install_command, sync_python_workspace_dependencies,
+        sync_root_python_workspace_dependencies, validate_root_wheel_metadata,
     };
+    use crate::{
+        config::WorkspaceDependenciesConfig,
+        workspace_plan::{ReleaseWorkspacePlan, WorkspacePackagePlan},
+    };
+
+    #[test]
+    fn syncs_bounded_workspace_requirements_with_extras_and_markers() {
+        let dir = tempdir().expect("tempdir");
+        fs::create_dir_all(dir.path().join("packages/provider")).expect("provider dir");
+        fs::write(
+            dir.path().join("packages/provider/pyproject.toml"),
+            r#"
+[project]
+dependencies = ["core[cli]>=0.12.1,<0.13; python_version >= '3.11'"]
+[project.optional-dependencies]
+test = ["core>=0.12.1,<0.13"]
+"#,
+        )
+        .expect("write pyproject");
+        let plan = ReleaseWorkspacePlan {
+            schema_version: 1,
+            ecosystem: "python".to_string(),
+            release_mode: "release_set".to_string(),
+            base_branch: "main".to_string(),
+            packages: vec![
+                WorkspacePackagePlan {
+                    name: "core".to_string(),
+                    path: ".".to_string(),
+                    selected: true,
+                    selection_reason: "selected".to_string(),
+                    current_version: "0.12.1".to_string(),
+                    next_version: Some("0.13.0".to_string()),
+                },
+                WorkspacePackagePlan {
+                    name: "provider".to_string(),
+                    path: "packages/provider".to_string(),
+                    selected: false,
+                    selection_reason: "unchanged".to_string(),
+                    current_version: "0.1.0".to_string(),
+                    next_version: None,
+                },
+            ],
+        };
+        let config: WorkspaceDependenciesConfig = toml::from_str(
+            r#"enabled = true
+[[rules]]
+dependency = "core"
+dependents = ["packages/*"]
+range = ">={version},<{next_minor}"
+"#,
+        )
+        .expect("config");
+        let operations =
+            sync_python_workspace_dependencies(dir.path(), &plan, &config).expect("sync");
+        let updated = fs::read_to_string(dir.path().join("packages/provider/pyproject.toml"))
+            .expect("read pyproject");
+        assert_eq!(operations.len(), 2);
+        assert!(updated.contains("core[cli]>=0.13.0,<0.14; python_version >= '3.11'"));
+        assert!(updated.contains("core>=0.13.0,<0.14"));
+    }
 
     #[test]
     fn syncs_root_dependencies_and_configured_extras_to_selected_beta_versions() {

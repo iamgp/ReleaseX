@@ -14,6 +14,7 @@ mod publish;
 mod pypi;
 mod version;
 mod version_files;
+mod workspace_plan;
 
 fn main() {
     if let Err(e) = cli::run() {

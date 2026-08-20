@@ -72,6 +72,21 @@ release_mode = "unified"
 [workspace]
 cascade_bumps = false
 
+[workspace.dependencies]
+enabled = true
+
+[[workspace.dependencies.rules]]
+dependency = "core"
+dependents = ["packages/*"]
+when = "dependency_selected"
+range = ">={version},<{next_minor}"
+
+[[release.transformers]]
+name = "sync-release-manifest"
+command = ["python3", "scripts/sync_release_manifest.py"]
+inputs = ["registry/support/v1.json"]
+outputs = ["registry/support/v1.json"]
+
 [ci]
 provider = "github"
 workflow_path = ".github/workflows/release.yml"
@@ -98,6 +113,12 @@ version_range = ">=1.0.0,<2.0.0"
 - `changelog_file`: changelog path to prepend release notes into
 - `pr_title`: release PR title template, with `{version}` placeholder
 - `release_name`: GitHub Release title template, with `{tag_name}` and `{version}` placeholders
+
+### Workspace dependency rules and transformers
+
+`[workspace.dependencies]` rewrites internal Python requirements after package versions are updated and before the lockfile refresh. Rules apply to all matching workspace packages; `when` is `dependency_selected` (the default), `dependent_selected`, or `always`. Range templates support `{version}`, `{current_version}`, `{major}`, `{minor}`, `{patch}`, `{next_major}`, and `{next_minor}`. Extras and environment markers are preserved; direct URL/path requirements are rejected.
+
+`[[release.transformers]]` runs a repository-provided command in the isolated release workspace after dependency synchronization. It receives the versioned `ReleaseWorkspacePlan` JSON on stdin and must emit `{ "schema_version": 1, "changed_files": [...] }` to stdout. Every changed path must be declared in `outputs`; transformer processes inherit only `PATH`, not credentials or the parent environment.
 
 ## `[project]`
 

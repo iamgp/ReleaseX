@@ -70,6 +70,9 @@ impl Config {
             validate_version_file(version_file)?;
         }
 
+        validate_workspace_config(&self.workspace)?;
+        validate_transformers(&self.release.transformers)?;
+
         for channel in &self.channels {
             if channel.branch.trim().is_empty() {
                 bail!("channels.branch must not be empty");
@@ -190,6 +193,8 @@ pub struct ReleaseConfig {
     pub pr_title: String,
     #[serde(default = "default_release_name")]
     pub release_name: String,
+    #[serde(default)]
+    pub transformers: Vec<ReleaseTransformerConfig>,
 }
 
 impl Default for ReleaseConfig {
@@ -200,6 +205,7 @@ impl Default for ReleaseConfig {
             changelog_file: default_changelog_file(),
             pr_title: default_pr_title(),
             release_name: default_release_name(),
+            transformers: Vec::new(),
         }
     }
 }
@@ -425,6 +431,111 @@ fn default_commit_email() -> String {
 pub struct WorkspaceConfig {
     #[serde(default)]
     pub cascade_bumps: bool,
+    #[serde(default)]
+    pub dependencies: WorkspaceDependenciesConfig,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct WorkspaceDependenciesConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub rules: Vec<WorkspaceDependencyRule>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkspaceDependencyRule {
+    pub dependency: String,
+    #[serde(default)]
+    pub dependents: Vec<String>,
+    #[serde(default = "default_dependency_when")]
+    pub when: String,
+    pub range: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReleaseTransformerConfig {
+    pub name: String,
+    pub command: Vec<String>,
+    #[serde(default)]
+    pub inputs: Vec<String>,
+    #[serde(default)]
+    pub outputs: Vec<String>,
+}
+
+fn default_dependency_when() -> String {
+    "dependency_selected".to_string()
+}
+
+fn validate_workspace_config(workspace: &WorkspaceConfig) -> Result<()> {
+    for rule in &workspace.dependencies.rules {
+        if rule.dependency.trim().is_empty() || rule.range.trim().is_empty() {
+            bail!("workspace.dependencies rules require dependency and range");
+        }
+        if !matches!(
+            rule.when.as_str(),
+            "dependency_selected" | "always" | "dependent_selected"
+        ) {
+            bail!(
+                "workspace.dependencies.rules.when must be dependency_selected, dependent_selected, or always"
+            );
+        }
+        for variable in template_variables(&rule.range) {
+            if !matches!(
+                variable.as_str(),
+                "version"
+                    | "current_version"
+                    | "major"
+                    | "minor"
+                    | "patch"
+                    | "next_major"
+                    | "next_minor"
+            ) {
+                bail!("unknown workspace dependency range template variable {{{variable}}}");
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_transformers(transformers: &[ReleaseTransformerConfig]) -> Result<()> {
+    let mut names = std::collections::BTreeSet::new();
+    for transformer in transformers {
+        if transformer.name.trim().is_empty() || transformer.command.is_empty() {
+            bail!("release transformers require a unique name and non-empty command");
+        }
+        if !names.insert(&transformer.name) {
+            bail!(
+                "release transformer names must be unique: {}",
+                transformer.name
+            );
+        }
+        for path in transformer.inputs.iter().chain(&transformer.outputs) {
+            let path = Path::new(path);
+            if path.is_absolute()
+                || path
+                    .components()
+                    .any(|component| matches!(component, std::path::Component::ParentDir))
+            {
+                bail!(
+                    "release transformer paths must be workspace-relative: {}",
+                    path.display()
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
+fn template_variables(template: &str) -> Vec<String> {
+    template
+        .match_indices('{')
+        .filter_map(|(start, _)| {
+            template[start + 1..]
+                .find('}')
+                .map(|end| template[start + 1..start + 1 + end].to_string())
+        })
+        .collect()
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

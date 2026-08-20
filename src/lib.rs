@@ -12,3 +12,4 @@ pub mod publish;
 pub mod pypi;
 pub mod version;
 pub mod version_files;
+pub mod workspace_plan;
