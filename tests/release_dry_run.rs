@@ -39,12 +39,24 @@ tag_prefix = "v"
 path = "pyproject.toml"
 key = "project.version"
 
+[[release.replacements]]
+files = ["registry/support/*.json"]
+search = '"name": "demo", "version": "0.1.0"'
+replace = '"name": "demo", "version": "0.2.0"'
+expected_matches = 1
+
 [changelog.sections]
 feat = "Added"
 fix = "Fixed"
 "#,
     )
     .expect("write config");
+    fs::create_dir_all(repo_path.join("registry/support")).expect("create registry");
+    fs::write(
+        repo_path.join("registry/support/v1.json"),
+        "{\"name\": \"demo\", \"version\": \"0.1.0\"}\n",
+    )
+    .expect("write registry");
     run(repo_path, &["git", "add", "."]);
     run(
         repo_path,
@@ -82,6 +94,12 @@ fix = "Fixed"
     );
     assert!(
         stdout.contains("Would apply labels: autorelease: pending"),
+        "{stdout}"
+    );
+    assert!(
+        stdout.contains(
+            "Would replace 1 literal match(es) for package `demo` in `registry/support/v1.json`"
+        ),
         "{stdout}"
     );
 }

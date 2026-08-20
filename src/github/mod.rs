@@ -22,6 +22,7 @@ use crate::{
         PrereleasePackage, build_explicit_install_command, sync_python_workspace_dependencies,
         sync_root_python_workspace_dependencies, validate_root_wheel_metadata,
     },
+    replacements,
     version::Suffix,
     workspace_plan::ReleaseWorkspacePlan,
 };
@@ -232,6 +233,20 @@ fn sync_workspace_dependencies(
     );
     sync_python_workspace_dependencies(repo_root, &workspace_plan, &config.workspace.dependencies)?;
     Ok(())
+}
+
+fn apply_release_replacements(
+    repo_root: &Path,
+    config: &Config,
+    analysis: &ReleaseAnalysis,
+    base_branch: &str,
+) -> Result<Vec<replacements::ReplacementOperation>> {
+    let plan = ReleaseWorkspacePlan::from_analysis(
+        analysis,
+        config.project.ecosystem,
+        base_branch.to_string(),
+    );
+    replacements::apply(repo_root, &config.release.replacements, &plan)
 }
 
 #[derive(Debug, Deserialize)]
@@ -910,6 +925,7 @@ pub fn execute_release_pr(
         &config.version_files,
         analysis.next_version.as_ref().unwrap(),
     )?;
+    apply_release_replacements(&clone_path, config, analysis, &plan.base)?;
     changelog::prepend_release_notes(
         &clone_path.join(&config.release.changelog_file),
         &plan.release_notes,
@@ -993,6 +1009,7 @@ pub fn prepare_release_workspace_check(
     }
     sync_workspace_dependencies(&clone_path, config, analysis, &plan.base)?;
     sync_prerelease_workspace_dependencies(&clone_path, config, analysis)?;
+    apply_release_replacements(&clone_path, config, analysis, &plan.base)?;
     run_transformers(&clone_path, config, analysis, &plan.base)?;
     changelog::prepend_release_notes(
         &clone_path.join(&config.release.changelog_file),
@@ -1087,6 +1104,7 @@ fn execute_monorepo_unified_pr(
     }
     sync_workspace_dependencies(&clone_path, config, analysis, &plan.base)?;
     sync_prerelease_workspace_dependencies(&clone_path, config, analysis)?;
+    apply_release_replacements(&clone_path, config, analysis, &plan.base)?;
     run_transformers(&clone_path, config, analysis, &plan.base)?;
     changelog::prepend_release_notes(
         &clone_path.join(&config.release.changelog_file),
@@ -1184,6 +1202,7 @@ fn execute_monorepo_per_package_pr(
         .as_ref()
         .context("selected package has no next version")?;
     analysis::update_version_files(&clone_path, &package.version_files, next_version)?;
+    apply_release_replacements(&clone_path, config, package_analysis, &plan.base)?;
 
     let changelog_path = if package.root == "." {
         config.release.changelog_file.clone()
@@ -1378,6 +1397,21 @@ pub fn print_release_pr_dry_run(
         println!(
             "Would synchronize {} declared workspace dependency rule(s) before refreshing lockfiles",
             config.workspace.dependencies.rules.len()
+        );
+    }
+    let replacement_operations = replacements::planned_operations(
+        repo.path(),
+        &config.release.replacements,
+        &workspace_plan,
+    )?;
+    for operation in replacement_operations {
+        println!(
+            "Would replace {} literal match(es) for package `{}` in `{}`: `{}` -> `{}`",
+            operation.matches,
+            operation.package,
+            operation.file,
+            operation.search,
+            operation.replace
         );
     }
     for transformer in &config.release.transformers {

@@ -117,6 +117,9 @@ sync configured root extras to selected beta workspace package versions and add
 an explicit PyPI verification command. `--finalize` promotes packages currently
 on prerelease versions to their stable versions.
 
+When `[[release.replacements]]` is configured, `--dry-run` expands and displays
+the checked literal replacements that would run before lockfile refresh.
+
 ### `relx release tag`
 
 Create the git tag and GitHub Release.
