@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.4.0] - 2026-08-20
+
+### Added
+- transactional workspace release plans (#45)
+- add checked declarative replacements (#48)
+
+### Changed
+- configure Amp orb lifecycle
+
+### Fixed
+- preserve Python manifest formatting (#47)
+
+### Contributors
+Thanks to our contributors for this release:
+- @iamgp (4 commits)
+
 ## [1.3.1] - 2026-05-11
 
 ### Fixed
