@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.5.0] - 2026-08-21
+
+### Added
+- add explicit recovery release version override (#49)
+
+### Contributors
+Thanks to our contributors for this release:
+- @iamgp (1 commit)
+
 ## [1.4.0] - 2026-08-20
 
 ### Added
