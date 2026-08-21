@@ -55,6 +55,108 @@ fn apply_pre_release_override(
     Ok(())
 }
 
+fn parse_stable_next_version(value: &str) -> Result<Version> {
+    let version: Version = value
+        .parse()
+        .with_context(|| format!("invalid --next-version `{value}`"))?;
+    if version.suffix.is_some() {
+        anyhow::bail!("--next-version must be a stable version, not `{version}`");
+    }
+    Ok(version)
+}
+
+fn apply_next_version_override(
+    analysis: &mut analysis::ReleaseAnalysis,
+    args: &PreReleaseArgs,
+) -> Result<()> {
+    let Some(value) = args.next_version.as_deref() else {
+        return Ok(());
+    };
+    let version = parse_stable_next_version(value)?;
+
+    if version <= analysis.current_version {
+        anyhow::bail!(
+            "--next-version {version} must be newer than current version {}",
+            analysis.current_version
+        );
+    }
+    for package in analysis
+        .package_plan
+        .packages
+        .iter()
+        .filter(|pkg| pkg.selected)
+    {
+        if version <= package.current_version {
+            anyhow::bail!(
+                "--next-version {version} must be newer than current version {} for package {}",
+                package.current_version,
+                package.name
+            );
+        }
+    }
+
+    analysis.next_version = Some(version.clone());
+    for package in analysis
+        .package_plan
+        .packages
+        .iter_mut()
+        .filter(|pkg| pkg.selected)
+    {
+        package.next_version = Some(version.clone());
+    }
+    Ok(())
+}
+
+fn validate_next_version_channel(
+    config: &Config,
+    repo: &GitRepository,
+    args: &PreReleaseArgs,
+) -> Result<()> {
+    if args.next_version.is_none() {
+        return Ok(());
+    }
+    let branch = repo
+        .current_branch()
+        .unwrap_or_else(|_| "unknown".to_string());
+    if let Some(channel) = channels::resolve_channel(config, &branch, args.channel.as_deref())
+        && channel.prerelease.is_some()
+    {
+        anyhow::bail!("--next-version cannot be used with a prerelease channel");
+    }
+    Ok(())
+}
+
+fn validate_tag_next_version(
+    analysis: &analysis::ReleaseAnalysis,
+    args: &PreReleaseArgs,
+) -> Result<()> {
+    let Some(value) = args.next_version.as_deref() else {
+        return Ok(());
+    };
+    let version = parse_stable_next_version(value)?;
+    if version != analysis.current_version {
+        anyhow::bail!(
+            "--next-version {version} does not match prepared source version {}; release tag derives its version from source",
+            analysis.current_version
+        );
+    }
+    for package in analysis
+        .package_plan
+        .packages
+        .iter()
+        .filter(|pkg| pkg.selected)
+    {
+        if package.current_version != version {
+            anyhow::bail!(
+                "--next-version {version} does not match prepared source version {} for package {}",
+                package.current_version,
+                package.name
+            );
+        }
+    }
+    Ok(())
+}
+
 fn select_prerelease_workspace_root(config: &Config, analysis: &mut analysis::ReleaseAnalysis) {
     if !python_prerelease_workspace_enabled(config, analysis) {
         return;
@@ -213,6 +315,7 @@ pub fn run(cli: &Cli, command: &ReleaseCommand) -> Result<()> {
             let mut analysis = analysis::analyze(&repo, &config)?;
             let release_args = PreReleaseArgs {
                 channel: None,
+                next_version: None,
                 pre_release: None,
                 finalize: false,
             };
@@ -258,6 +361,8 @@ pub fn run(cli: &Cli, command: &ReleaseCommand) -> Result<()> {
                 sp.finish_and_clear();
                 result?
             };
+            validate_next_version_channel(&config, &repo, args)?;
+            apply_next_version_override(&mut analysis, args)?;
             apply_channel_override(&repo, &config, &mut analysis, args)?;
             apply_pre_release_override(&config, &mut analysis, args)?;
             if cli.dry_run {
@@ -284,6 +389,8 @@ pub fn run(cli: &Cli, command: &ReleaseCommand) -> Result<()> {
                 result?
             };
             adjust_for_merged_release_pr(&repo, &config, &mut analysis)?;
+            validate_next_version_channel(&config, &repo, args)?;
+            validate_tag_next_version(&analysis, args)?;
             apply_channel_override(&repo, &config, &mut analysis, args)?;
             apply_pre_release_override(&config, &mut analysis, args)?;
             if cli.dry_run {
@@ -335,7 +442,10 @@ mod tests {
 
     use tempfile::tempdir;
 
-    use super::{analyze_for_publish, apply_pre_release_override};
+    use super::{
+        analyze_for_publish, apply_next_version_override, apply_pre_release_override,
+        validate_next_version_channel, validate_tag_next_version,
+    };
     use crate::analysis::{PackagePlan, PackageReleaseAnalysis, ReleaseAnalysis};
     use crate::changelog::PendingChangelog;
     use crate::cli::{PreReleaseArgs, PreReleaseKind};
@@ -516,6 +626,7 @@ version = "0.2.4"
         let mut analysis = sample_release_set_analysis(false);
         let args = PreReleaseArgs {
             channel: None,
+            next_version: None,
             pre_release: Some(PreReleaseKind::Beta),
             finalize: false,
         };
@@ -556,6 +667,7 @@ version = "0.2.4"
         let mut analysis = sample_finalize_analysis();
         let args = PreReleaseArgs {
             channel: None,
+            next_version: None,
             pre_release: None,
             finalize: true,
         };
@@ -576,6 +688,93 @@ version = "0.2.4"
             "0.3.1"
         );
         assert!(!analysis.package_plan.packages[2].selected);
+    }
+
+    #[test]
+    fn next_version_override_replaces_the_conventional_commit_bump() {
+        let mut analysis = sample_release_set_analysis(true);
+        let args = PreReleaseArgs {
+            channel: None,
+            next_version: Some("0.14.0".to_string()),
+            pre_release: None,
+            finalize: false,
+        };
+
+        apply_next_version_override(&mut analysis, &args).expect("apply version override");
+
+        assert_eq!(analysis.next_version.unwrap().to_string(), "0.14.0");
+        assert!(
+            analysis
+                .package_plan
+                .selected_packages()
+                .iter()
+                .all(|package| package.next_version.as_ref().unwrap().to_string() == "0.14.0")
+        );
+    }
+
+    #[test]
+    fn next_version_override_rejects_invalid_or_non_incrementing_versions() {
+        let mut analysis = sample_release_set_analysis(true);
+        analysis.current_version = "0.12.1".parse().unwrap();
+        analysis.package_plan.packages[0].current_version = "0.12.1".parse().unwrap();
+        analysis.package_plan.packages[1].current_version = "0.12.1".parse().unwrap();
+
+        for value in ["not-a-version", "0.12.1"] {
+            let args = PreReleaseArgs {
+                channel: None,
+                next_version: Some(value.to_string()),
+                pre_release: None,
+                finalize: false,
+            };
+            assert!(apply_next_version_override(&mut analysis, &args).is_err());
+        }
+    }
+
+    #[test]
+    fn next_version_override_rejects_prerelease_channels() {
+        let repo_dir = tempdir().expect("tempdir");
+        run(repo_dir.path(), &["git", "init", "-b", "beta"]);
+        let repo = GitRepository::discover(repo_dir.path()).expect("repo");
+        let config: Config = toml::from_str(
+            r#"
+            [[channels]]
+            branch = "beta"
+            prerelease = "b"
+            "#,
+        )
+        .expect("config");
+        let args = PreReleaseArgs {
+            channel: None,
+            next_version: Some("0.14.0".to_string()),
+            pre_release: None,
+            finalize: false,
+        };
+
+        assert!(validate_next_version_channel(&config, &repo, &args).is_err());
+    }
+
+    #[test]
+    fn tag_next_version_must_match_prepared_source() {
+        let mut analysis = sample_release_set_analysis(true);
+        analysis.current_version = "0.14.0".parse().unwrap();
+        for package in &mut analysis.package_plan.packages {
+            if package.selected {
+                package.current_version = "0.14.0".parse().unwrap();
+            }
+        }
+        let matching = PreReleaseArgs {
+            channel: None,
+            next_version: Some("0.14.0".to_string()),
+            pre_release: None,
+            finalize: false,
+        };
+        validate_tag_next_version(&analysis, &matching).expect("matching prepared source");
+
+        let mismatched = PreReleaseArgs {
+            next_version: Some("0.14.1".to_string()),
+            ..matching
+        };
+        assert!(validate_tag_next_version(&analysis, &mismatched).is_err());
     }
 
     fn sample_release_set_analysis(root_selected: bool) -> ReleaseAnalysis {

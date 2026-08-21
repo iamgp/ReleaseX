@@ -193,6 +193,19 @@ relx release pr
 relx release pr --dry-run
 ```
 
+For a recovery release where a published version cannot be reused, pass an exact,
+stable `--next-version`. It replaces only the conventional-commit-derived version;
+the normal changelog, channel range, workspace dependency, replacement, and lockfile
+preparation still run. It must be newer than every selected package's current version
+and cannot be combined with pre-release flags or a prerelease channel. This is a
+one-off CLI/action input, not a `[versioning]` setting: do not change
+`initial_version` for an existing project.
+
+```bash
+# Current source is 0.12.1; public 0.13.0 cannot be consumed, so prepare 0.14.0.
+relx release pr --next-version 0.14.0
+```
+
 #### `relx release tag`
 
 Create a git tag and GitHub Release with the changelog section as release notes. Typically called by CI after the release PR is merged. Labels the merged PR with `autorelease: tagged`.
@@ -200,6 +213,14 @@ Create a git tag and GitHub Release with the changelog section as release notes.
 ```bash
 relx release tag
 relx release tag --dry-run
+```
+
+For an overridden recovery release, pass the same value to tag as an assertion.
+`release tag` always derives the tag from the prepared source version and fails if it
+does not equal `--next-version`, preventing a tag/source mismatch.
+
+```bash
+relx release tag --next-version 0.14.0
 ```
 
 #### `relx release publish`
@@ -254,6 +275,29 @@ jobs:
           command: release publish
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+```
+
+### Recovery version override
+
+Use the Action's explicit `next-version` input for an audited recovery release; it
+is passed as `--next-version` only to the requested relx command. Keep the same
+value on the tag workflow so it verifies the merged source version.
+
+```yaml
+- uses: iamgp/ReleaseX@v1.4.1 # pin to a ReleaseX release that includes this feature
+  with:
+    command: release pr
+    next-version: 0.14.0
+  env:
+    GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+# After that PR is merged:
+- uses: iamgp/ReleaseX@v1.4.1
+  with:
+    command: release tag
+    next-version: 0.14.0
+  env:
+    GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 ```
 
 ## How It Works
