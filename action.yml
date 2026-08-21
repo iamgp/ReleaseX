@@ -18,6 +18,10 @@ inputs:
     description: Additional flags to pass (e.g. `--dry-run`).
     required: false
     default: ""
+  next-version:
+    description: Exact stable release version for `release pr` or a source-version check for `release tag`.
+    required: false
+    default: ""
 
 runs:
   using: composite
@@ -72,4 +76,4 @@ runs:
 
     - name: Run relx
       shell: bash
-      run: relx ${{ inputs.command }} ${{ inputs.args }}
+      run: relx ${{ inputs.command }} ${{ inputs.args }} ${{ inputs.next-version && format('--next-version {0}', inputs.next-version) }}

@@ -104,6 +104,14 @@ pub struct PreReleaseArgs {
     #[arg(long, value_name = "CHANNEL")]
     pub channel: Option<String>,
 
+    /// Use an exact stable version instead of deriving a conventional-commit bump
+    #[arg(
+        long,
+        value_name = "VERSION",
+        conflicts_with_all = ["pre_release", "finalize"]
+    )]
+    pub next_version: Option<String>,
+
     /// Create a pre-release version (alpha, beta, or rc)
     #[arg(long, value_name = "KIND", conflicts_with = "finalize")]
     pub pre_release: Option<PreReleaseKind>,

@@ -110,7 +110,15 @@ relx release pr --dry-run
 relx release pr --pre-release beta
 relx release pr --channel beta
 relx release pr --finalize
+relx release pr --next-version 0.14.0
 ```
+
+`--next-version <VERSION>` is an explicit one-off stable recovery version. It must
+be valid under relx's existing PEP 440/semver rules and strictly newer than the
+current version of every selected package. It replaces the conventional-commit bump
+but retains normal release preparation. It cannot be used with `--pre-release`,
+`--finalize`, or a prerelease channel. Do not use `initial_version` to recover from
+an already published version.
 
 For Python `release_set` monorepos with `[prerelease] enabled = true`, beta PRs
 sync configured root extras to selected beta workspace package versions and add

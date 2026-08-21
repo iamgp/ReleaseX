@@ -6,6 +6,8 @@ fn action_exposes_command_input_and_downloads_binary() {
     let action = fs::read_to_string(root.join("action.yml")).expect("read action.yml");
 
     assert!(action.contains("command:"), "{action}");
+    assert!(action.contains("next-version:"), "{action}");
+    assert!(action.contains("--next-version"), "{action}");
     assert!(action.contains("release pr"), "{action}");
     assert!(action.contains("release tag"), "{action}");
     assert!(action.contains("releases/latest/download"), "{action}");
