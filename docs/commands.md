@@ -162,11 +162,11 @@ relx release preview-pr --json
 
 `preview-pr` finds the open `<development> -> <production>` PR (or creates
 it when no such PR exists), calculates the next version from the
-Conventional Commits in the PR range, and maintains one idempotent sticky
-comment with the proposed version and release notes. Repositories owned by
-relx (marked in the PR body) also get their title and body refreshed.
-Pre-existing user PRs keep their own title and body; only the sticky
-comment is managed.
+Conventional Commits in the PR range, and publishes the preview. For PRs
+owned by relx (marked in the PR body) the preview lives in the PR title
+and body, refreshed on every run — no comment is posted. Pre-existing
+user PRs keep their own title and body and get one idempotent sticky
+comment instead.
 
 Machine-readable outputs: `pr_number`, `version`, `tag_name`,
 `release_notes`, `source_sha`, and `base_sha` (stdout, `--json`, and

@@ -13,6 +13,7 @@ use crate::{
 };
 
 pub const PROMOTION_PR_MARKER: &str = "<!-- relx-promotion-pr -->";
+pub const PREVIEW_METADATA_PREFIX: &str = "<!-- relx-preview";
 pub const DIGEST_LABEL: &str = "Release-digest:";
 
 #[derive(Debug, Clone)]
@@ -299,6 +300,13 @@ pub fn render_promotion_pr_body(plan: &PromotionPlan, tag_name: Option<&str>) ->
     let mut body = String::new();
     body.push_str(PROMOTION_PR_MARKER);
     body.push('\n');
+    body.push_str(&render_preview_metadata(
+        plan.tag_name.as_deref().unwrap_or("none"),
+        &plan.head_sha,
+        &plan.base_sha,
+        &plan.digest,
+    ));
+    body.push('\n');
     body.push_str(&format!(
         "## Promotion: `{}@{}` → `{}@{}`\n\n",
         plan.head_branch,
@@ -311,8 +319,53 @@ pub fn render_promotion_pr_body(plan: &PromotionPlan, tag_name: Option<&str>) ->
         None => body.push_str("Proposed release: none pending\n\n"),
     }
     body.push_str(&plan.release_notes);
-    body.push_str("\n\n---\nManaged by `relx release preview-pr`. Version details are in the sticky preview comment below.\n");
+    body.push_str("\n\n---\nManaged by `relx release preview-pr`.\n");
     body
+}
+
+/// Hidden machine-readable preview state embedded in relx-managed PR bodies.
+/// This is the freshness anchor `promote` verifies; relx-managed PRs carry
+/// the same information visibly above, so no sticky comment is needed.
+pub fn render_preview_metadata(
+    version: &str,
+    source_sha: &str,
+    base_sha: &str,
+    digest: &str,
+) -> String {
+    format!(
+        "{PREVIEW_METADATA_PREFIX} version=\"{version}\" source=\"{source_sha}\" base=\"{base_sha}\" digest=\"{digest}\" -->"
+    )
+}
+
+pub fn parse_preview_metadata(body: &str) -> Option<ParsedPreview> {
+    let line = body
+        .lines()
+        .find(|line| line.trim_start().starts_with(PREVIEW_METADATA_PREFIX))?;
+    let inner = line
+        .trim()
+        .strip_prefix(PREVIEW_METADATA_PREFIX)?
+        .strip_suffix("-->")?;
+    let mut version = None;
+    let mut source_sha = None;
+    let mut base_sha = None;
+    let mut digest = None;
+    for part in inner.split_whitespace() {
+        let (key, value) = part.split_once('=')?;
+        let value = value.trim_matches('"');
+        match key {
+            "version" if value != "none" => version = Some(value.to_string()),
+            "source" => source_sha = Some(value.to_string()),
+            "base" => base_sha = Some(value.to_string()),
+            "digest" => digest = Some(value.to_string()),
+            _ => {}
+        }
+    }
+    Some(ParsedPreview {
+        version: version?,
+        source_sha: source_sha?,
+        base_sha: base_sha?,
+        digest: digest?,
+    })
 }
 
 pub fn render_promotion_pr_title(plan: &PromotionPlan) -> String {
@@ -471,7 +524,9 @@ fn github_client(repo: &GitRepository, config: &Config) -> Result<GitHubClient> 
 
 /// Create the develop/hotfix -> production PR when it does not exist, and
 /// refresh the title/body of PRs previously created by relx. Pre-existing
-/// user-owned PRs are left untouched apart from the sticky preview comment.
+/// user-owned PRs are left untouched. Returns the PR number and whether the
+/// PR is relx-managed (created by relx or carrying its marker); only
+/// user-owned PRs receive the sticky preview comment.
 pub fn ensure_promotion_pr(
     client: &GitHubClient,
     plan: &PromotionPlan,
@@ -488,26 +543,28 @@ pub fn ensure_promotion_pr(
                 plan.base_branch
             );
         }
-        if details.has_marker(PROMOTION_PR_MARKER) {
+        let managed = details.has_marker(PROMOTION_PR_MARKER);
+        if managed {
             client.update_pr(
                 number,
                 &render_promotion_pr_title(plan),
                 &render_promotion_pr_body(plan, plan.tag_name.as_deref()),
             )?;
         }
-        return Ok((number, false));
+        return Ok((number, managed));
     }
 
     if let Some(open) = client.find_open_pr(&plan.head_branch, &plan.base_branch)? {
         let details = client.get_pr(open.number)?;
-        if details.has_marker(PROMOTION_PR_MARKER) {
+        let managed = details.has_marker(PROMOTION_PR_MARKER);
+        if managed {
             client.update_pr(
                 open.number,
                 &render_promotion_pr_title(plan),
                 &render_promotion_pr_body(plan, plan.tag_name.as_deref()),
             )?;
         }
-        return Ok((open.number, false));
+        return Ok((open.number, managed));
     }
 
     let created = client.create_pr(
@@ -573,10 +630,8 @@ pub fn execute_preview(
             "Would ensure {} -> {} promotion PR exists",
             head_branch, base_branch
         );
-        println!(
-            "Would upsert sticky preview comment ({} bytes)",
-            comment.len()
-        );
+        println!("Would refresh the relx-managed PR body with the preview");
+        println!("Would post the sticky preview comment only on user-owned PRs");
         println!("{comment}");
         emit_preview_outputs(&plan, options.pr_number.unwrap_or(0), options.json)?;
         return Ok(plan);
@@ -584,26 +639,33 @@ pub fn execute_preview(
 
     let Some(client) = client else {
         bail!(
-            "missing GitHub token in {}: preview must update the PR comment",
+            "missing GitHub token in {}: preview must update the promotion PR",
             config.github.token_env
         );
     };
 
-    let pr_number = match pr_details {
+    let (pr_number, managed) = match pr_details {
         Some(details) => {
             let number = details.number;
-            if details.has_marker(PROMOTION_PR_MARKER) {
+            let managed = details.has_marker(PROMOTION_PR_MARKER);
+            if managed {
                 client.update_pr(
                     number,
                     &render_promotion_pr_title(&plan),
                     &render_promotion_pr_body(&plan, plan.tag_name.as_deref()),
                 )?;
             }
-            number
+            (number, managed)
         }
-        None => ensure_promotion_pr(&client, &plan, None)?.0,
+        None => ensure_promotion_pr(&client, &plan, None)?,
     };
-    upsert_preview_comment(&client, &marker, pr_number, &comment)?;
+    if managed {
+        println!(
+            "PR #{pr_number} is relx-managed; preview lives in the PR body, no comment posted"
+        );
+    } else {
+        upsert_preview_comment(&client, &marker, pr_number, &comment)?;
+    }
     plan.pr_number = Some(pr_number);
 
     let pr_title = client
@@ -675,18 +737,17 @@ pub fn execute_promote(
 
     let comments = client.list_issue_comments(details.number)?;
     let marker = config.promotion.preview_marker.clone();
-    let sticky = find_sticky_comment(&comments, &marker).with_context(|| {
-        format!(
-            "no preview comment found on PR #{}; run `relx release preview-pr --pr {}` first",
-            details.number, details.number
-        )
-    })?;
-    let preview = parse_preview_comment(&sticky.body).with_context(|| {
-        format!(
-            "preview comment on PR #{} is unreadable; refresh it with `relx release preview-pr --pr {}`",
-            details.number, details.number
-        )
-    })?;
+    let preview = match find_sticky_comment(&comments, &marker)
+        .and_then(|sticky| parse_preview_comment(&sticky.body))
+    {
+        Some(preview) => preview,
+        None => parse_preview_metadata(&details.body).with_context(|| {
+            format!(
+                "no preview found on PR #{}; run `relx release preview-pr --pr {}` first",
+                details.number, details.number
+            )
+        })?,
+    };
 
     ensure_sha_available(repo, &merge_sha)?;
     ensure_sha_available(repo, &preview.base_sha)?;
@@ -848,7 +909,10 @@ mod tests {
     use std::collections::BTreeMap;
     use std::process::Command;
 
-    use super::{PromotionPlan, resolve_active_baseline};
+    use super::{
+        PROMOTION_PR_MARKER, ParsedPreview, PromotionPlan, parse_preview_metadata,
+        render_promotion_pr_body, resolve_active_baseline,
+    };
 
     #[test]
     fn tag_pattern_supports_wildcards() {
@@ -893,6 +957,41 @@ mod tests {
         let parsed = parse_preview_comment(&body).expect("parse");
         assert_eq!(parsed.version, "v0.3.0");
         assert_eq!(parsed.digest, "digest");
+    }
+
+    #[test]
+    fn preview_metadata_round_trips_through_pr_body() {
+        let plan = PromotionPlan {
+            head_branch: "develop".to_string(),
+            base_branch: "main".to_string(),
+            head_sha: "abc1234def5678".to_string(),
+            base_sha: "def5678abc1234".to_string(),
+            current_version: "0.2.0".parse().unwrap(),
+            baseline_tag: None,
+            next_version: Some("0.3.0".parse().unwrap()),
+            tag_name: Some("v0.3.0".to_string()),
+            bump: BumpLevel::Minor,
+            changelog: PendingChangelog {
+                sections: BTreeMap::new(),
+                contributors: Vec::new(),
+            },
+            release_notes: "notes".to_string(),
+            digest: "digest".to_string(),
+            pr_number: None,
+        };
+        let body = render_promotion_pr_body(&plan, Some("v0.3.0"));
+        assert!(body.contains(PROMOTION_PR_MARKER));
+        assert!(body.contains("Proposed release: **v0.3.0**"));
+        let parsed = parse_preview_metadata(&body).expect("parse");
+        assert_eq!(
+            parsed,
+            ParsedPreview {
+                version: "v0.3.0".to_string(),
+                source_sha: "abc1234def5678".to_string(),
+                base_sha: "def5678abc1234".to_string(),
+                digest: "digest".to_string(),
+            }
+        );
     }
 
     #[test]
