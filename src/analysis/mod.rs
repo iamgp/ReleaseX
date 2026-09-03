@@ -507,17 +507,17 @@ pub fn discover_npm_workspace(repo_root: &Path) -> Option<Vec<String>> {
     let contents = fs::read_to_string(manifest_path).ok()?;
     let parsed: serde_json::Value = serde_json::from_str(&contents).ok()?;
     let workspaces = parsed.get("workspaces")?;
-    let patterns: Vec<&str> = if let Some(array) = workspaces.as_array() {
-        array.iter().filter_map(|value| value.as_str()).collect()
-    } else if let Some(object) = workspaces.as_object() {
-        object
+    let patterns: Vec<&str> = match workspaces {
+        serde_json::Value::Array(array) => {
+            array.iter().filter_map(|value| value.as_str()).collect()
+        }
+        serde_json::Value::Object(object) => object
             .get("packages")?
             .as_array()?
             .iter()
             .filter_map(|value| value.as_str())
-            .collect()
-    } else {
-        return None;
+            .collect(),
+        _ => return None,
     };
 
     let mut roots = Vec::new();
