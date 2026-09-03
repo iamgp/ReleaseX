@@ -275,6 +275,9 @@ impl BumpLevel {
             Self::None => None,
             Self::Patch => Some(version.bump_patch()),
             Self::Minor => Some(version.bump_minor()),
+            // Semver §4: major version zero is for initial development.
+            // A breaking change bumps minor, not major, while major == 0.
+            Self::Major if version.major == 0 => Some(version.bump_minor()),
             Self::Major => Some(version.bump_major()),
         }
     }
@@ -372,6 +375,24 @@ mod tests {
         ];
 
         assert_eq!(BumpLevel::from_commits(&commits), BumpLevel::Major);
+    }
+
+    #[test]
+    fn breaking_change_bumps_minor_while_major_is_zero() {
+        let zero = Version::from_str("0.3.1").expect("parse");
+        assert_eq!(
+            BumpLevel::Major.apply(&zero).expect("bump").to_string(),
+            "0.4.0"
+        );
+    }
+
+    #[test]
+    fn breaking_change_bumps_major_once_released() {
+        let one = Version::from_str("1.3.1").expect("parse");
+        assert_eq!(
+            BumpLevel::Major.apply(&one).expect("bump").to_string(),
+            "2.0.0"
+        );
     }
 
     #[test]

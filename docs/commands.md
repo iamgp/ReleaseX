@@ -47,6 +47,29 @@ relx status --channel
 - release PR status when GitHub access is available
 - latest published registry version when project metadata can be resolved
 
+## `relx current-version`
+
+Print the current version for build-time injection (Docker builds,
+Hatch-VCS-style dynamic packages). Uses version files, or the active tag
+baseline when `[promotion]` is enabled.
+
+```bash
+relx current-version
+relx current-version --json
+```
+
+## `relx lint`
+
+Verify commits follow Conventional Commits. Checks commits since the
+latest tag (or `--since <tag>`). Exits non-zero on failure, so it works as
+a CI gate or pre-push hook.
+
+```bash
+relx lint
+relx lint --since=v0.7.0
+relx lint --json
+```
+
 ## `relx healthcheck`
 
 Run release pre-flight validation.

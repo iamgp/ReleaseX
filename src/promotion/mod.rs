@@ -175,6 +175,25 @@ pub fn plan_from_range(
     let tag_name = next_version
         .as_ref()
         .map(|version| format!("{}{}", config.release.tag_prefix, version));
+    // Best-effort links + compare footer. Digest uses raw sections, so this
+    // never affects freshness checks.
+    let release_notes = match (baseline_tag.clone(), tag_name.clone()) {
+        (Some(base), Some(head)) => {
+            crate::github::enrich_release_notes(repo, config, &release_notes, Some(&base), &head)
+        }
+        _ => match crate::github::detect_repo(repo, &config.github) {
+            Ok(repo_ref) => {
+                let base = crate::changelog::web_base(&config.github.api_base);
+                crate::changelog::linkify_github_refs(
+                    &release_notes,
+                    &base,
+                    &repo_ref.owner,
+                    &repo_ref.name,
+                )
+            }
+            Err(_) => release_notes,
+        },
+    };
     let digest = release_digest(
         next_version.as_ref().map(ToString::to_string).as_deref(),
         &changelog.sections,

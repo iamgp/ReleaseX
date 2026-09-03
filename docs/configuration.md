@@ -152,6 +152,9 @@ If omitted, `relx` auto-detects the repository type from files such as `pyprojec
 - `strategy`: currently `conventional_commits`
 - `initial_version`: version used when no tag or version can be read yet
 
+Bump rules follow semver, including the major-zero rule: while the major
+version is `0`, breaking changes bump minor (`0.3.1` → `0.4.0`), not major.
+
 ## `[[version_files]]`
 
 Each entry identifies a file that contains the package version.
@@ -180,6 +183,10 @@ pattern = '__version__ = "{version}"'
 - `bot_patterns`: custom bot match patterns
 
 Use `[changelog.sections]` to map commit types to section names. Set a type to `false` to exclude it.
+
+Release notes linkify bare `#123` references to issues and append a
+`Full Changelog: <base>...<head>` compare link whenever the GitHub
+repository can be detected.
 
 ## `[publish]`
 

@@ -694,9 +694,7 @@ pub fn build_release_pr_plan(
         &config.changelog.first_contribution_emoji,
     );
     let prerelease_body = prerelease_pr_body(config, analysis)?;
-    let body = format!(
-        "## Release summary\n\n{release_notes}\n\n## Maintainer checklist\n- [ ] Review version bump\n- [ ] Review changelog\n- [ ] Merge to cut the release"
-    ) + &prerelease_body;
+    let body = format!("## Release summary\n\n{release_notes}") + &prerelease_body;
 
     Ok(ReleasePrPlan {
         version,
@@ -707,6 +705,57 @@ pub fn build_release_pr_plan(
         labels: vec![config.github.pending_label.clone()],
         release_notes,
     })
+}
+
+/// Linkify `#123` references and append a compare-range footer. Best
+/// effort: without a detectable repo the notes pass through unchanged.
+pub(crate) fn enrich_release_notes(
+    repo: &GitRepository,
+    config: &Config,
+    notes: &str,
+    base_tag: Option<&str>,
+    head_tag: &str,
+) -> String {
+    let Ok(repo_ref) = detect_repo(repo, &config.github) else {
+        return notes.to_string();
+    };
+    let base = changelog::web_base(&config.github.api_base);
+    let linked = changelog::linkify_github_refs(notes, &base, &repo_ref.owner, &repo_ref.name);
+    match base_tag {
+        Some(base_tag) => changelog::append_compare_link(
+            &linked,
+            &base,
+            &repo_ref.owner,
+            &repo_ref.name,
+            base_tag,
+            head_tag,
+        ),
+        None => linked,
+    }
+}
+
+fn enrich_pr_plan(repo: &GitRepository, config: &Config, plan: &mut ReleasePrPlan) {
+    let base_tag = repo.latest_tag().ok().flatten();
+    let head_tag = format!("{}{}", config.release.tag_prefix, plan.version);
+    plan.release_notes = enrich_release_notes(
+        repo,
+        config,
+        &plan.release_notes,
+        base_tag.as_deref(),
+        &head_tag,
+    );
+    plan.body = enrich_release_notes(repo, config, &plan.body, None, &head_tag);
+}
+
+fn enrich_tag_plan(repo: &GitRepository, config: &Config, plan: &mut ReleaseTagPlan) {
+    let base_tag = repo.latest_tag().ok().flatten();
+    plan.release_notes = enrich_release_notes(
+        repo,
+        config,
+        &plan.release_notes,
+        base_tag.as_deref(),
+        &plan.tag_name,
+    );
 }
 
 fn prerelease_pr_body(config: &Config, analysis: &ReleaseAnalysis) -> Result<String> {
@@ -884,7 +933,8 @@ pub fn execute_release_pr(
     analysis: &ReleaseAnalysis,
 ) -> Result<()> {
     let current_branch = repo.current_branch()?;
-    let plan = build_release_pr_plan(config, analysis, &current_branch)?;
+    let mut plan = build_release_pr_plan(config, analysis, &current_branch)?;
+    enrich_pr_plan(repo, config, &mut plan);
     let repo_ref = detect_repo(repo, &config.github)?;
     let token = env::var(&config.github.token_env)
         .with_context(|| format!("missing GitHub token in {}", config.github.token_env))?;
@@ -975,7 +1025,8 @@ pub fn prepare_release_workspace_check(
     analysis: &ReleaseAnalysis,
 ) -> Result<()> {
     let current_branch = repo.current_branch()?;
-    let plan = build_release_pr_plan(config, analysis, &current_branch)?;
+    let mut plan = build_release_pr_plan(config, analysis, &current_branch)?;
+    enrich_pr_plan(repo, config, &mut plan);
     let clone_dir = tempdir().context("failed to create temporary workspace")?;
     let clone_path = clone_dir.path().join("repo");
     run_git(
@@ -1059,7 +1110,8 @@ fn execute_monorepo_unified_pr(
     selected: &[&analysis::PackageReleaseAnalysis],
 ) -> Result<()> {
     let current_branch = repo.current_branch()?;
-    let plan = build_release_pr_plan(config, analysis, &current_branch)?;
+    let mut plan = build_release_pr_plan(config, analysis, &current_branch)?;
+    enrich_pr_plan(repo, config, &mut plan);
     let repo_ref = detect_repo(repo, &config.github)?;
     let token = env::var(&config.github.token_env)
         .with_context(|| format!("missing GitHub token in {}", config.github.token_env))?;
@@ -1161,7 +1213,8 @@ fn execute_monorepo_per_package_pr(
     package: &analysis::PackageReleaseAnalysis,
 ) -> Result<()> {
     let current_branch = repo.current_branch()?;
-    let plan = build_release_pr_plan(config, package_analysis, &current_branch)?;
+    let mut plan = build_release_pr_plan(config, package_analysis, &current_branch)?;
+    enrich_pr_plan(repo, config, &mut plan);
     let repo_ref = detect_repo(repo, &config.github)?;
     let token = env::var(&config.github.token_env)
         .with_context(|| format!("missing GitHub token in {}", config.github.token_env))?;
@@ -1259,7 +1312,8 @@ pub fn execute_release_tag(
     config: &Config,
     analysis: &ReleaseAnalysis,
 ) -> Result<()> {
-    let plan = build_release_tag_plan(config, repo, analysis)?;
+    let mut plan = build_release_tag_plan(config, repo, analysis)?;
+    enrich_tag_plan(repo, config, &mut plan);
     let repo_ref = detect_repo(repo, &config.github)?;
     let token = env::var(&config.github.token_env)
         .with_context(|| format!("missing GitHub token in {}", config.github.token_env))?;
@@ -1310,7 +1364,8 @@ pub fn execute_monorepo_release_tag(
 
     for package in &selected {
         let package_analysis = single_package_analysis(analysis, package);
-        let plan = build_release_tag_plan(config, repo, &package_analysis)?;
+        let mut plan = build_release_tag_plan(config, repo, &package_analysis)?;
+        enrich_tag_plan(repo, config, &mut plan);
 
         run_git(
             repo.path(),
@@ -1375,7 +1430,8 @@ pub fn print_release_pr_dry_run(
 ) -> Result<()> {
     let repo_ref = detect_repo(repo, &config.github)?;
     let current_branch = repo.current_branch()?;
-    let plan = build_release_pr_plan(config, analysis, &current_branch)?;
+    let mut plan = build_release_pr_plan(config, analysis, &current_branch)?;
+    enrich_pr_plan(repo, config, &mut plan);
     if config.monorepo.enabled {
         let selected = selected_package_summaries(analysis);
         println!(
@@ -1437,7 +1493,8 @@ pub fn print_release_tag_dry_run(
     analysis: &ReleaseAnalysis,
 ) -> Result<()> {
     let repo_ref = detect_repo(repo, &config.github)?;
-    let plan = build_release_tag_plan(config, repo, analysis)?;
+    let mut plan = build_release_tag_plan(config, repo, analysis)?;
+    enrich_tag_plan(repo, config, &mut plan);
     if config.monorepo.enabled {
         println!(
             "Would tag this release set for {} mode: {}",

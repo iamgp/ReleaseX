@@ -1,6 +1,8 @@
+pub mod current_version;
 pub mod generate_ci;
 pub mod healthcheck;
 pub mod init;
+pub mod lint;
 pub mod release;
 pub mod snapshot;
 pub mod status;
@@ -42,6 +44,8 @@ pub enum Command {
     Release(ReleaseCommand),
     Workspace,
     GenerateCi(GenerateCiArgs),
+    CurrentVersion(CurrentVersionArgs),
+    Lint(LintArgs),
 }
 
 #[derive(Debug, Args)]
@@ -101,6 +105,23 @@ pub struct PrepareArgs {
 pub struct GenerateCiArgs {
     #[arg(long, value_name = "PROVIDER")]
     pub provider: Option<String>,
+}
+
+#[derive(Debug, Args)]
+pub struct CurrentVersionArgs {
+    /// Emit machine-readable JSON.
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct LintArgs {
+    /// Check commits since this tag instead of the latest tag.
+    #[arg(long, value_name = "TAG")]
+    pub since: Option<String>,
+    /// Emit machine-readable JSON.
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Debug, Args)]
@@ -207,5 +228,7 @@ pub fn run() -> Result<()> {
         Command::Release(cmd) => release::run(&cli, cmd),
         Command::Workspace => workspace::run(&cli),
         Command::GenerateCi(args) => generate_ci::run(&cli, args),
+        Command::CurrentVersion(args) => current_version::run(&cli, args),
+        Command::Lint(args) => lint::run(&cli, args),
     }
 }

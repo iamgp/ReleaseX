@@ -112,6 +112,62 @@ pub fn next_release_heading(version: &str, date: &str) -> String {
     format!("## [{version}] - {date}")
 }
 
+/// Web base URL derived from the API base, so links point at the human UI
+/// (including GitHub Enterprise) rather than the API.
+pub fn web_base(api_base: &str) -> String {
+    let trimmed = api_base.trim_end_matches('/');
+    if trimmed == "https://api.github.com" {
+        return "https://github.com".to_string();
+    }
+    trimmed
+        .strip_suffix("/api/v3")
+        .unwrap_or(trimmed)
+        .to_string()
+}
+
+/// Turn bare `#123` references into issue links. Existing markdown links
+/// and already-qualified paths are left alone.
+pub fn linkify_github_refs(text: &str, web_base: &str, owner: &str, repo: &str) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    let mut output = String::with_capacity(text.len());
+    let mut index = 0;
+    while index < chars.len() {
+        if chars[index] == '#'
+            && (index == 0 || !matches!(chars[index - 1], '[' | '/' | '#' | '0'..='9'))
+        {
+            let mut end = index + 1;
+            while end < chars.len() && chars[end].is_ascii_digit() {
+                end += 1;
+            }
+            if end > index + 1 {
+                let number: String = chars[index + 1..end].iter().collect();
+                output.push_str(&format!(
+                    "[#{number}]({web_base}/{owner}/{repo}/issues/{number})"
+                ));
+                index = end;
+                continue;
+            }
+        }
+        output.push(chars[index]);
+        index += 1;
+    }
+    output
+}
+
+/// Append a compare-range footer linking the previous tag to the new one.
+pub fn append_compare_link(
+    notes: &str,
+    web_base: &str,
+    owner: &str,
+    repo: &str,
+    base_tag: &str,
+    head_tag: &str,
+) -> String {
+    format!(
+        "{notes}\n\n---\nFull Changelog: {web_base}/{owner}/{repo}/compare/{base_tag}...{head_tag}"
+    )
+}
+
 pub fn render_release_notes(
     version: &str,
     date: &str,
@@ -192,7 +248,8 @@ mod tests {
     use tempfile::tempdir;
 
     use super::{
-        PendingChangelog, next_release_heading, prepend_release_notes, render_release_notes,
+        PendingChangelog, append_compare_link, linkify_github_refs, next_release_heading,
+        prepend_release_notes, render_release_notes, web_base,
     };
 
     #[test]
@@ -201,6 +258,41 @@ mod tests {
             next_release_heading("1.2.0", "2026-03-16"),
             "## [1.2.0] - 2026-03-16"
         );
+    }
+
+    #[test]
+    fn linkifies_issue_refs_without_touching_links() {
+        let linked = linkify_github_refs(
+            "add search (#42) and [#7](https://example.com) plus /issues/9",
+            "https://github.com",
+            "acme",
+            "demo",
+        );
+        assert!(linked.contains("[#42](https://github.com/acme/demo/issues/42)"));
+        assert!(linked.contains("[#7](https://example.com)"));
+        assert!(linked.contains("/issues/9"));
+    }
+
+    #[test]
+    fn web_base_handles_github_enterprise() {
+        assert_eq!(web_base("https://api.github.com"), "https://github.com");
+        assert_eq!(
+            web_base("https://ghe.example.com/api/v3"),
+            "https://ghe.example.com"
+        );
+    }
+
+    #[test]
+    fn compare_link_appends_range() {
+        let notes = append_compare_link(
+            "notes",
+            "https://github.com",
+            "acme",
+            "demo",
+            "v0.6.0",
+            "v0.7.0",
+        );
+        assert!(notes.contains("compare/v0.6.0...v0.7.0"));
     }
 
     #[test]

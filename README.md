@@ -175,6 +175,24 @@ relx status
 relx status --dry-run
 ```
 
+#### `relx current-version`
+
+Print the current version for build-time injection. Uses version files, or the active tag baseline when `[promotion]` is enabled.
+
+```bash
+relx current-version
+relx current-version --json
+```
+
+#### `relx lint`
+
+Verify commits since the latest tag follow Conventional Commits. Exits non-zero on failure.
+
+```bash
+relx lint
+relx lint --since=v0.7.0
+```
+
 #### `relx validate`
 
 Parse and validate the config file. Reports the release branch and number of configured version files.
