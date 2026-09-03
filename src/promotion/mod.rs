@@ -381,6 +381,34 @@ pub fn render_promotion_pr_title(plan: &PromotionPlan) -> String {
     }
 }
 
+/// Stable generated-branch name for the versioned promotion path, e.g.
+/// `relx/promote/develop-main`.
+pub fn promotion_branch_name(config: &Config, head_branch: &str, base_branch: &str) -> String {
+    let prefix = config.promotion.release_branch_prefix.trim_end_matches('/');
+    format!(
+        "{}/{}-{}",
+        prefix,
+        sanitize_branch_segment(head_branch),
+        sanitize_branch_segment(base_branch)
+    )
+}
+
+fn sanitize_branch_segment(value: &str) -> String {
+    let cleaned: String = value
+        .chars()
+        .map(|ch| match ch {
+            'a'..='z' | 'A'..='Z' | '0'..='9' => ch.to_ascii_lowercase(),
+            _ => '-',
+        })
+        .collect();
+    let cleaned = cleaned.trim_matches('-').to_string();
+    if cleaned.is_empty() {
+        "branch".to_string()
+    } else {
+        cleaned
+    }
+}
+
 pub fn emit_github_output(key: &str, value: &str) -> Result<()> {
     if let Ok(path) = env::var("GITHUB_OUTPUT") {
         use std::fmt::Write as _;
@@ -605,6 +633,9 @@ pub fn execute_preview(
     if !config.promotion.enabled {
         bail!("promotion mode is not enabled; set [promotion].enabled = true");
     }
+    if config.monorepo.enabled {
+        bail!("promotion mode does not support monorepo repositories yet");
+    }
     config.validate()?;
 
     let client = github_client(repo, config).ok();
@@ -625,9 +656,13 @@ pub fn execute_preview(
     let tag_name = plan.tag_name.clone().unwrap_or_default();
     let comment = render_preview_comment(&marker, &plan, &tag_name);
 
+    if !config.version_files.is_empty() {
+        return execute_versioned_preview(repo, config, client, options, &mut plan, dry_run);
+    }
+
     if dry_run {
         println!(
-            "Would ensure {} -> {} promotion PR exists",
+            "Would ensure {} -> {} promotion PR exists (tag-only, no generated branch)",
             head_branch, base_branch
         );
         println!("Would refresh the relx-managed PR body with the preview");
@@ -686,6 +721,143 @@ pub fn execute_preview(
     Ok(plan)
 }
 
+/// Versioned promotion path: cut a generated `relx/promote/*` branch from
+/// the promotion head, apply the version bump and changelog entry, and open
+/// (or update) a single PR to production carrying code plus versioning.
+/// Generated PRs are always relx-managed, so the preview lives in the PR
+/// body and no sticky comment is posted.
+#[allow(clippy::too_many_arguments)]
+pub fn execute_versioned_preview(
+    repo: &GitRepository,
+    config: &Config,
+    client: Option<GitHubClient>,
+    options: &PreviewOptions,
+    plan: &mut PromotionPlan,
+    dry_run: bool,
+) -> Result<PromotionPlan> {
+    let branch = promotion_branch_name(config, &plan.head_branch, &plan.base_branch);
+    let title = render_promotion_pr_title(plan);
+    let body = render_promotion_pr_body(plan, plan.tag_name.as_deref());
+
+    let Some(next_version) = plan.next_version.clone() else {
+        if dry_run {
+            println!(
+                "Would ensure {} -> {} promotion PR exists ({})",
+                plan.head_branch, plan.base_branch, branch
+            );
+            println!("No releasable changes pending; no branch or PR would be changed");
+            emit_preview_outputs(plan, options.pr_number.unwrap_or(0), options.json)?;
+            return Ok(plan.clone());
+        }
+        println!("No releasable changes pending; no branch or PR changed");
+        emit_preview_outputs(plan, options.pr_number.unwrap_or(0), options.json)?;
+        return Ok(plan.clone());
+    };
+
+    if dry_run {
+        println!(
+            "Would push generated branch `{}` from `{}@{}`",
+            branch,
+            plan.head_branch,
+            short_sha(&plan.head_sha)
+        );
+        println!("Would update version files to {next_version}");
+        println!(
+            "Would prepend {} with the proposed release notes",
+            config.release.changelog_file
+        );
+        println!(
+            "Would create or update PR `{}` ({} -> {})",
+            title, branch, plan.base_branch
+        );
+        emit_preview_outputs(plan, options.pr_number.unwrap_or(0), options.json)?;
+        return Ok(plan.clone());
+    }
+
+    let Some(client) = client else {
+        bail!(
+            "missing GitHub token in {}: preview must push the promotion branch",
+            config.github.token_env
+        );
+    };
+    let token = std::env::var(&config.github.token_env)
+        .with_context(|| format!("missing GitHub token in {}", config.github.token_env))?;
+    let origin_url = repo
+        .remote_url("origin")?
+        .context("origin remote is required for the versioned promotion flow")?;
+
+    let clone_dir = tempfile::tempdir().context("failed to create temporary workspace")?;
+    let clone_path = clone_dir.path().join("repo");
+    crate::git::run_git(
+        clone_dir.path(),
+        vec![
+            "clone".into(),
+            repo.path().as_os_str().to_owned(),
+            clone_path.as_os_str().to_owned(),
+        ],
+    )?;
+    let auth_url = crate::github::authenticated_url(&origin_url, &token);
+    crate::git::run_git(
+        &clone_path,
+        ["remote", "set-url", "origin", auth_url.as_str()],
+    )?;
+    crate::git::run_git(
+        &clone_path,
+        ["checkout", "-B", branch.as_str(), plan.head_sha.as_str()],
+    )?;
+
+    crate::analysis::update_version_files(&clone_path, &config.version_files, &next_version)?;
+    crate::changelog::prepend_release_notes(
+        &clone_path.join(&config.release.changelog_file),
+        &plan.release_notes,
+    )?;
+    crate::github::refresh_lockfile(&clone_path, config, &config.version_files)?;
+
+    crate::git::run_git(&clone_path, ["add", "."])?;
+    let diff = crate::git::run_git(&clone_path, ["status", "--short"])?;
+    if !diff.trim().is_empty() {
+        // Deliberately non-conventional (no `type:` prefix) so the version
+        // commit itself never contributes to a future bump or changelog and
+        // promote-time recomputation matches the preview exactly.
+        let commit_message = format!(
+            "relx promote {} -> {} ({})",
+            plan.head_branch,
+            plan.base_branch,
+            plan.tag_name.as_deref().unwrap_or("no release")
+        );
+        crate::git::run_git(
+            &clone_path,
+            crate::github::release_commit_args(config, commit_message.as_str()),
+        )?;
+    }
+    crate::git::run_git(
+        &clone_path,
+        [
+            "push",
+            "--force",
+            "origin",
+            format!("HEAD:{}", branch).as_str(),
+        ],
+    )?;
+
+    let pr = match client.find_open_pr(&branch, &plan.base_branch)? {
+        Some(existing) => client.update_pr(existing.number, &title, &body)?,
+        None => client.create_pr(&title, &branch, &plan.base_branch, &body)?,
+    };
+    plan.pr_number = Some(pr.number);
+
+    println!(
+        "Promotion PR ready: #{} {} ({} -> {})",
+        pr.number, title, branch, plan.base_branch
+    );
+    println!(
+        "Proposed release: {}{}",
+        config.release.tag_prefix, next_version
+    );
+    emit_preview_outputs(plan, pr.number, options.json)?;
+    Ok(plan.clone())
+}
+
 pub fn execute_promote(
     repo: &GitRepository,
     config: &Config,
@@ -724,11 +896,18 @@ pub fn execute_promote(
         );
     }
     if !config.promotion.is_promotion_head(&details.head.ref_name) {
-        bail!(
-            "PR #{} head `{}` is not the development branch or a hotfix branch",
-            details.number,
-            details.head.ref_name
+        // Versioned path: the PR head is the generated relx/promote/* branch.
+        let generated_prefix = format!(
+            "{}/",
+            config.promotion.release_branch_prefix.trim_end_matches('/')
         );
+        if !details.head.ref_name.starts_with(&generated_prefix) {
+            bail!(
+                "PR #{} head `{}` is not the development branch, a hotfix branch, or a generated promotion branch",
+                details.number,
+                details.head.ref_name
+            );
+        }
     }
     let merge_sha = details.merge_commit_sha.clone().context(format!(
         "PR #{} has no merge commit recorded",
@@ -792,7 +971,22 @@ pub fn execute_promote(
         "PR #{} contains no releasable changes",
         details.number
     ))?;
-    let _ = next_version;
+
+    if !config.version_files.is_empty() {
+        let prepared = crate::analysis::read_current_version(repo.path(), &config.version_files)?
+            .with_context(|| {
+            format!(
+                "PR #{} merged without version files; cannot verify the prepared release",
+                details.number
+            )
+        })?;
+        if prepared != next_version.to_string() {
+            bail!(
+                "PR #{} prepared version {prepared} does not match previewed version {next_version}; refresh the preview before promoting",
+                details.number
+            );
+        }
+    }
 
     if dry_run {
         println!("Would tag {current_tag} at {}", short_sha(&merge_sha));
@@ -911,7 +1105,7 @@ mod tests {
 
     use super::{
         PROMOTION_PR_MARKER, ParsedPreview, PromotionPlan, parse_preview_metadata,
-        render_promotion_pr_body, resolve_active_baseline,
+        promotion_branch_name, render_promotion_pr_body, resolve_active_baseline,
     };
 
     #[test]
@@ -991,6 +1185,25 @@ mod tests {
                 base_sha: "def5678abc1234".to_string(),
                 digest: "digest".to_string(),
             }
+        );
+    }
+
+    #[test]
+    fn promotion_branch_name_is_stable_and_sanitized() {
+        let config: Config = toml::from_str(
+            r#"
+            [promotion]
+            enabled = true
+            "#,
+        )
+        .expect("config");
+        assert_eq!(
+            promotion_branch_name(&config, "develop", "main"),
+            "relx/promote/develop-main"
+        );
+        assert_eq!(
+            promotion_branch_name(&config, "hotfix/login-loop", "main"),
+            "relx/promote/hotfix-login-loop-main"
         );
     }
 

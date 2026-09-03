@@ -725,6 +725,8 @@ pub struct PromotionConfig {
     pub hotfix_prefixes: Vec<String>,
     #[serde(default = "default_promotion_tag_pattern")]
     pub tag_pattern: String,
+    #[serde(default = "default_promotion_release_branch_prefix")]
+    pub release_branch_prefix: String,
     #[serde(default)]
     pub baseline_version: Option<String>,
     #[serde(default = "default_promotion_preview_marker")]
@@ -739,6 +741,7 @@ impl Default for PromotionConfig {
             production_branch: String::new(),
             hotfix_prefixes: default_promotion_hotfix_prefixes(),
             tag_pattern: default_promotion_tag_pattern(),
+            release_branch_prefix: default_promotion_release_branch_prefix(),
             baseline_version: None,
             preview_marker: default_promotion_preview_marker(),
         }
@@ -775,6 +778,10 @@ fn default_promotion_tag_pattern() -> String {
     "v*".to_string()
 }
 
+fn default_promotion_release_branch_prefix() -> String {
+    "relx/promote".to_string()
+}
+
 fn default_promotion_preview_marker() -> String {
     "<!-- relx-release-preview -->".to_string()
 }
@@ -806,6 +813,9 @@ fn validate_promotion_config(promotion: &PromotionConfig, release: &ReleaseConfi
     }
     if promotion.preview_marker.trim().is_empty() {
         bail!("promotion.preview_marker must not be empty when promotion is enabled");
+    }
+    if promotion.release_branch_prefix.trim().is_empty() {
+        bail!("promotion.release_branch_prefix must not be empty when promotion is enabled");
     }
     if let Some(baseline) = promotion.baseline_version.as_deref()
         && !baseline.trim().is_empty()

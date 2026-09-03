@@ -27,7 +27,7 @@ use crate::{
     workspace_plan::ReleaseWorkspacePlan,
 };
 
-fn authenticated_url(origin_url: &str, token: &str) -> String {
+pub(crate) fn authenticated_url(origin_url: &str, token: &str) -> String {
     if let Some(rest) = origin_url.strip_prefix("https://") {
         format!("https://x-access-token:{token}@{rest}")
     } else {
@@ -35,7 +35,7 @@ fn authenticated_url(origin_url: &str, token: &str) -> String {
     }
 }
 
-fn release_commit_args(config: &Config, message: &str) -> Vec<String> {
+pub(crate) fn release_commit_args(config: &Config, message: &str) -> Vec<String> {
     vec![
         "-c".to_string(),
         format!("user.name={}", config.github.commit_author),
@@ -61,7 +61,7 @@ fn release_tag_args(config: &Config, tag_name: &str, message: &str) -> Vec<Strin
     ]
 }
 
-fn refresh_lockfile(
+pub(crate) fn refresh_lockfile(
     clone_path: &Path,
     config: &Config,
     version_files: &[VersionFileConfig],

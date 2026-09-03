@@ -162,11 +162,19 @@ relx release preview-pr --json
 
 `preview-pr` finds the open `<development> -> <production>` PR (or creates
 it when no such PR exists), calculates the next version from the
-Conventional Commits in the PR range, and publishes the preview. For PRs
-owned by relx (marked in the PR body) the preview lives in the PR title
-and body, refreshed on every run — no comment is posted. Pre-existing
-user PRs keep their own title and body and get one idempotent sticky
-comment instead.
+Conventional Commits in the PR range, and publishes the preview.
+
+Two paths, selected by config:
+
+- **Versioned** (`[[version_files]]` configured): preview cuts a generated
+  `relx/promote/*` branch from the promotion head, applies the version bump
+  and changelog entry, and opens one PR to production carrying code plus
+  versioning. The preview lives in the relx-managed PR title/body; no
+  comment is posted.
+- **Tag-only** (no `[[version_files]]`): no branch is generated. The
+  `develop -> main` PR itself is found or created, and the preview lives in
+  the PR body for relx-managed PRs or in one idempotent sticky comment for
+  pre-existing user PRs.
 
 Machine-readable outputs: `pr_number`, `version`, `tag_name`,
 `release_notes`, `source_sha`, and `base_sha` (stdout, `--json`, and
