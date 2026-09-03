@@ -126,6 +126,13 @@ fn generate_github_workflow(
             yaml.push_str("      - uses: dtolnay/rust-toolchain@stable\n");
             yaml.push('\n');
             yaml.push_str(&format!("      - run: {}\n", build_cmd));
+        } else if active_ecosystem == Ecosystem::TypeScript {
+            yaml.push_str("      - uses: actions/setup-node@v4\n");
+            yaml.push_str("        with:\n");
+            yaml.push_str("          node-version-file: package.json\n");
+            yaml.push_str("          registry-url: https://registry.npmjs.org\n");
+            yaml.push('\n');
+            yaml.push_str(&format!("      - run: {}\n", build_cmd));
         } else if active_ecosystem == Ecosystem::Go {
             yaml.push_str("      - uses: actions/setup-go@v5\n");
             yaml.push_str("        with:\n");
@@ -255,6 +262,14 @@ mod tests {
         assert!(yaml.contains("actions/setup-go@v5"), "{yaml}");
         assert!(yaml.contains("go-version-file: go.mod"), "{yaml}");
         assert!(yaml.contains("run: go build ./..."), "{yaml}");
+        assert!(!yaml.contains("astral-sh/setup-uv@v5"), "{yaml}");
+    }
+
+    #[test]
+    fn typescript_workflow_uses_node_setup() {
+        let yaml = generate_github_workflow(&base_config(), Ecosystem::TypeScript, None);
+        assert!(yaml.contains("actions/setup-node@v4"), "{yaml}");
+        assert!(yaml.contains("run: npm run build --if-present"), "{yaml}");
         assert!(!yaml.contains("astral-sh/setup-uv@v5"), "{yaml}");
     }
 }

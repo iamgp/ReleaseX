@@ -2,7 +2,7 @@
 
 Automated release tooling for Git repositories. `relx` handles version bumps, changelogs, release PRs, GitHub Releases, and ecosystem-specific publishing from a single binary.
 
-ReleaseX now auto-detects Python, Rust, and Go repositories for config generation and build checks. Python remains the deepest publishing/workspace integration today.
+ReleaseX now auto-detects Python, Rust, Go, and TypeScript repositories for config generation and build checks. Python remains the deepest publishing/workspace integration today.
 
 Full documentation lives under [`docs/`](./docs/README.md).
 
@@ -16,7 +16,7 @@ Full documentation lives under [`docs/`](./docs/README.md).
 - **Changelog generation** — auto-generates `CHANGELOG.md` in [Keep a Changelog](https://keepachangelog.com/) format
 - **Release PRs** — opens and maintains a PR that accumulates changes; release happens when *you* merge it
 - **GitHub Releases** — creates git tags and GitHub Releases with changelog notes on PR merge
-- **Ecosystem-aware publishing** — Python via `uv` or `twine`, Rust via `cargo publish`, and Go via `goreleaser`
+- **Ecosystem-aware publishing** — Python via `uv` or `twine`, Rust via `cargo publish`, Go via `goreleaser`, and TypeScript via `npm publish`
 - **Monorepo support** — independent versioning and release PRs for multiple packages in one repo
 - **Single binary** — written in Rust, no runtime dependencies
 
@@ -72,7 +72,7 @@ All configuration lives in `relx.toml` at the repo root. Running `relx init` aut
 ```toml
 # ── Project type ─────────────────────────────────────────────────
 [project]
-ecosystem = "python"                   # "python" | "rust" | "go"; optional if auto-detected
+ecosystem = "python"                   # "python" | "rust" | "go" | "typescript"; optional if auto-detected
 
 # ── Release settings ─────────────────────────────────────────────
 [release]
@@ -115,7 +115,7 @@ sections.docs = false                   # excluded from changelog
 # ── Publishing (opt-in) ─────────────────────────────────────────
 [publish]
 enabled = false                         # publishing is never on by default
-provider = "uv"                         # "uv", "twine", "cargo", or "goreleaser"
+provider = "uv"                         # "uv", "twine", "cargo", "goreleaser", or "npm"
 repository = "pypi"                     # repository name or custom URL
 # repository_url = "https://..."       # optional: explicit index URL
 dist_dir = "dist"                       # directory containing built distributions
@@ -159,7 +159,7 @@ release_mode = "unified"                # "unified", "release_set", or "per_pack
 
 #### `relx init`
 
-Generate a `relx.toml` config file by auto-detecting your project layout. Detects Python, Rust, and Go repositories and configures version files accordingly. Fails if a config file already exists.
+Generate a `relx.toml` config file by auto-detecting your project layout. Detects Python, Rust, Go, and TypeScript repositories and configures version files accordingly. Fails if a config file already exists.
 
 ```bash
 relx init
@@ -243,7 +243,7 @@ relx release tag --next-version 0.14.0
 
 #### `relx release publish`
 
-Publish artifacts using the configured provider. Python uses `uv` or `twine`, Rust uses `cargo`, and Go uses `goreleaser`. Requires `[publish] enabled = true` in config.
+Publish artifacts using the configured provider. Python uses `uv` or `twine`, Rust uses `cargo`, Go uses `goreleaser`, and TypeScript uses `npm`. Requires `[publish] enabled = true` in config.
 
 ```bash
 relx release publish

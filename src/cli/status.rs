@@ -11,7 +11,7 @@ use crate::{
     cratesio, ecosystem,
     git::GitRepository,
     github::{self, GitHubClient, PullRequest},
-    progress, pypi,
+    npm, progress, pypi,
 };
 
 pub fn run(cli: &Cli, args: &StatusArgs) -> Result<()> {
@@ -491,6 +491,10 @@ fn pypi_version_for_package(
             .flatten()
             .map(|version| ("crates.io".to_string(), version)),
         Ecosystem::Go => None,
+        Ecosystem::TypeScript => npm::latest_published_version(&project_name)
+            .ok()
+            .flatten()
+            .map(|version| ("npm".to_string(), version)),
     }
 }
 
@@ -499,5 +503,6 @@ fn registry_label(repo: &GitRepository, config: &Config) -> &'static str {
         Ecosystem::Python => "PyPI",
         Ecosystem::Rust => "crates.io",
         Ecosystem::Go => "Registry",
+        Ecosystem::TypeScript => "npm",
     }
 }

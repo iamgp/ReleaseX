@@ -7,6 +7,7 @@ pub mod cratesio;
 pub mod ecosystem;
 pub mod git;
 pub mod github;
+pub mod npm;
 pub mod prerelease;
 pub mod promotion;
 pub mod publish;

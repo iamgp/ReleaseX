@@ -1,5 +1,5 @@
 name: ReleaseX
-description: Automated release tool for Python, Rust, and Go projects — version bumps, changelogs, release PRs, and PyPI publishing.
+description: Automated release tool for Python, Rust, Go, and TypeScript projects — version bumps, changelogs, release PRs, and PyPI publishing.
 author: iamgp
 
 branding:

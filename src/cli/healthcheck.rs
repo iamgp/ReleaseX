@@ -9,7 +9,7 @@ use crate::{
     config::{Config, Ecosystem},
     cratesio, ecosystem,
     git::{GitRepository, run_git},
-    github, pypi,
+    github, npm, pypi,
     version::Version,
 };
 
@@ -522,6 +522,20 @@ fn check_registry(config: &Option<Config>, repo: &Option<GitRepository>) -> Vec<
                             )),
                         },
                         Ecosystem::Go => {}
+                        Ecosystem::TypeScript => match npm::has_version(&project_name, &version) {
+                            Ok(true) => checks.push(CheckResult::Fail(format!(
+                                "Version {} is already published on npm",
+                                version
+                            ))),
+                            Ok(false) => checks.push(CheckResult::Pass(format!(
+                                "Version {} is not yet published on npm",
+                                version
+                            ))),
+                            Err(_) => checks.push(CheckResult::Warn(
+                                "Could not query the npm registry for the current version"
+                                    .to_string(),
+                            )),
+                        },
                     }
                 }
             }
@@ -590,6 +604,24 @@ fn check_registry(config: &Option<Config>, repo: &Option<GitRepository>) -> Vec<
             }
         }
         Ecosystem::Go => {}
+        Ecosystem::TypeScript => {
+            let token_env = config
+                .publish
+                .token_env
+                .as_deref()
+                .unwrap_or("NODE_AUTH_TOKEN");
+            if env::var(token_env).is_ok() {
+                checks.push(CheckResult::Pass(format!(
+                    "{} is set for npm publishing",
+                    token_env
+                )));
+            } else {
+                checks.push(CheckResult::Warn(format!(
+                    "{} is not set for npm publishing",
+                    token_env
+                )));
+            }
+        }
     }
 
     checks

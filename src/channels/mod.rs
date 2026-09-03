@@ -117,6 +117,22 @@ fn next_prerelease_for_package(
                 None => base.bump_pre(kind),
             }
         }
+        crate::config::Ecosystem::TypeScript => {
+            match crate::npm::project_name(repo.path(), package_root) {
+                Some(project_name) => match crate::npm::latest_published_version(&project_name) {
+                    Ok(Some(version))
+                        if version.major == base.major
+                            && version.minor == base.minor
+                            && version.patch == base.patch
+                            && matches!(version.suffix, Some(crate::version::Suffix::Pre(_))) =>
+                    {
+                        version.bump_pre(kind)
+                    }
+                    _ => base.bump_pre(kind),
+                },
+                None => base.bump_pre(kind),
+            }
+        }
         crate::config::Ecosystem::Go => base.bump_pre(kind),
     }
 }

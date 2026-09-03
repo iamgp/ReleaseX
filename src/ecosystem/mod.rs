@@ -15,6 +15,10 @@ pub fn detect(repo_root: &Path, config: Option<&Config>) -> Ecosystem {
         return Ecosystem::Go;
     }
 
+    if repo_root.join("package.json").exists() {
+        return Ecosystem::TypeScript;
+    }
+
     Ecosystem::Python
 }
 
@@ -23,6 +27,7 @@ pub fn manifest_name(ecosystem: Ecosystem) -> &'static str {
         Ecosystem::Python => "pyproject.toml",
         Ecosystem::Rust => "Cargo.toml",
         Ecosystem::Go => "go.mod",
+        Ecosystem::TypeScript => "package.json",
     }
 }
 
@@ -31,6 +36,7 @@ pub fn discover_version_files(repo_root: &Path, ecosystem: Ecosystem) -> Vec<Ver
         Ecosystem::Python => discover_python_version_files(repo_root),
         Ecosystem::Rust => discover_rust_version_files(repo_root),
         Ecosystem::Go => discover_go_version_files(repo_root),
+        Ecosystem::TypeScript => discover_typescript_version_files(repo_root),
     }
 }
 
@@ -45,6 +51,7 @@ pub fn build_command(ecosystem: Ecosystem, pyproject_backend: Option<&str>) -> &
         }
         Ecosystem::Rust => "cargo build --locked",
         Ecosystem::Go => "go build ./...",
+        Ecosystem::TypeScript => "npm run build --if-present",
     }
 }
 
@@ -62,6 +69,7 @@ pub fn healthcheck_command(
         }
         Ecosystem::Rust => vec!["cargo", "build", "--locked"],
         Ecosystem::Go => vec!["go", "build", "./..."],
+        Ecosystem::TypeScript => vec!["npm", "run", "build", "--if-present"],
     }
 }
 
@@ -79,6 +87,7 @@ pub fn tool_check_command(
             "goreleaser" => vec!["goreleaser", "--version"],
             _ => vec!["go", "version"],
         },
+        Ecosystem::TypeScript => vec!["npm", "--version"],
     }
 }
 
@@ -159,6 +168,20 @@ fn discover_go_version_files(repo_root: &Path) -> Vec<VersionFileConfig> {
     scan_go_dir(repo_root, repo_root, &mut version_files);
     version_files.sort_by(|left, right| left.path.cmp(&right.path));
     version_files.dedup_by(|left, right| left.path == right.path);
+    version_files
+}
+
+fn discover_typescript_version_files(repo_root: &Path) -> Vec<VersionFileConfig> {
+    let mut version_files = Vec::new();
+
+    if repo_root.join("package.json").exists() {
+        version_files.push(VersionFileConfig {
+            path: "package.json".to_string(),
+            key: Some("version".to_string()),
+            pattern: None,
+        });
+    }
+
     version_files
 }
 

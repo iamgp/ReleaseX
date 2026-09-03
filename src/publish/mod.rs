@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     analysis::{self, ReleaseAnalysis},
     config::{Config, PublishConfig},
-    pypi,
+    npm, pypi,
     version::Version,
 };
 
@@ -555,6 +555,28 @@ fn build_plan_inner(
             command.push("release".into());
             command.push("--clean".into());
         }
+        "npm" => {
+            command.push("npm".into());
+            command.push("publish".into());
+
+            if let Some(url) = &repository_url {
+                command.push("--registry".into());
+                command.push(url.into());
+            } else if repository != "npmjs" {
+                command.push("--registry".into());
+                command.push(repository.into());
+            }
+
+            if publish.trusted_publishing {
+                command.push("--provenance".into());
+            }
+            if let Some(token_env) = publish.token_env.as_deref() {
+                let token_env = token_env.trim();
+                let value = env::var(token_env)
+                    .with_context(|| format!("missing publish credential env var {token_env}"))?;
+                env_pairs.push(("NODE_AUTH_TOKEN".to_string(), value));
+            }
+        }
         _ => bail!("unsupported publish provider `{provider}`"),
     }
 
@@ -752,6 +774,8 @@ fn check_already_published(package_name: &str, version: &Version, provider: &str
             // TODO: Implement crates.io check using src/cratesio/mod.rs
             Ok(false)
         }
+        "npm" => npm::has_version(package_name, version)
+            .with_context(|| format!("failed to check npm for {package_name} {version}")),
         _ => {
             // For other providers, we can't check, so assume not published
             Ok(false)
@@ -792,6 +816,13 @@ fn get_package_name(repo_root: &Path, _package_root: &str) -> Option<String> {
             .get("name")?
             .as_str()
             .map(ToString::to_string);
+    }
+
+    let manifest_path = repo_root.join("package.json");
+    if manifest_path.exists() {
+        let contents = fs::read_to_string(manifest_path).ok()?;
+        let parsed: serde_json::Value = serde_json::from_str(&contents).ok()?;
+        return parsed.get("name")?.as_str().map(ToString::to_string);
     }
 
     None

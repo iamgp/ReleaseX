@@ -91,6 +91,17 @@ pub(crate) fn refresh_lockfile(
                 bail!("uv lock failed: {}", stderr.trim());
             }
         }
+        Ecosystem::TypeScript if clone_path.join("package-lock.json").exists() => {
+            let output = std::process::Command::new("npm")
+                .args(["install", "--package-lock-only", "--ignore-scripts"])
+                .current_dir(clone_path)
+                .output()
+                .context("failed to run npm install --package-lock-only")?;
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                bail!("npm install --package-lock-only failed: {}", stderr.trim());
+            }
+        }
         _ => {}
     }
     Ok(())

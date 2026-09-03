@@ -98,6 +98,10 @@ fn build_config(repo: Option<&GitRepository>, repo_root: &Path) -> InitPlan {
         publish.provider = "goreleaser".to_string();
         publish.repository = "github".to_string();
         publish.dist_dir = "dist".to_string();
+    } else if detected_ecosystem == Ecosystem::TypeScript {
+        publish.provider = "npm".to_string();
+        publish.repository = "npmjs".to_string();
+        publish.dist_dir = ".".to_string();
     }
 
     InitPlan {
