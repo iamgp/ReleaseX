@@ -7,7 +7,9 @@ use crate::{
     cli::{Cli, PreReleaseArgs, PreReleaseKind, ReleaseCommand, ReleaseSubcommand},
     config::{Config, Ecosystem},
     git::GitRepository,
-    github, progress, publish,
+    github, progress,
+    promotion::{PreviewOptions, ReleaseOptions},
+    publish,
     version::{BumpLevel, Suffix, Version},
 };
 
@@ -427,6 +429,46 @@ pub fn run(cli: &Cli, command: &ReleaseCommand) -> Result<()> {
             } else {
                 let sp = progress::spinner("Publishing…");
                 let result = publish::execute(repo.path(), &config, args.skip_published);
+                sp.finish_and_clear();
+                result?;
+            }
+        }
+        ReleaseSubcommand::PreviewPr(args) => {
+            let options = PreviewOptions {
+                pr_number: args.pr,
+                head_branch: args.head.clone(),
+                base_branch: args.base.clone(),
+                json: args.json,
+            };
+            if cli.dry_run {
+                crate::promotion::execute_preview(&repo, &config, &options, true)?;
+            } else {
+                let sp = progress::spinner("Previewing promotion release…");
+                let result = crate::promotion::execute_preview(&repo, &config, &options, false);
+                sp.finish_and_clear();
+                result?;
+            }
+        }
+        ReleaseSubcommand::Release(args) => {
+            let options = ReleaseOptions {
+                pr_number: args.pr,
+                json: args.json,
+            };
+            if cli.dry_run {
+                crate::promotion::execute_release(&repo, &config, &options, true)?;
+            } else {
+                let sp = progress::spinner("Cutting release…");
+                let result = crate::promotion::execute_release(&repo, &config, &options, false);
+                sp.finish_and_clear();
+                result?;
+            }
+        }
+        ReleaseSubcommand::ForwardPort(_) => {
+            if cli.dry_run {
+                crate::promotion::execute_forward_port(&repo, &config, true)?;
+            } else {
+                let sp = progress::spinner("Forward-porting production…");
+                let result = crate::promotion::execute_forward_port(&repo, &config, false);
                 sp.finish_and_clear();
                 result?;
             }

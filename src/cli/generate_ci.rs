@@ -228,6 +228,7 @@ mod tests {
             github: GitHubConfig::default(),
             workspace: Default::default(),
             prerelease: Default::default(),
+            promotion: Default::default(),
             ci: CiConfig::default(),
             channels: Vec::new(),
         }

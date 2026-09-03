@@ -281,3 +281,58 @@ prerelease = "b"
 branch = "next"
 publish = false
 ```
+
+## `[promotion]`
+
+Promotion mode supports a two-long-lived-branch delivery model
+(`feature/fix → develop → main`, `hotfix/* → main`). The preview
+produces a single PR to production carrying code plus versioning; the tag
+remains the version authority.
+
+```toml
+[promotion]
+enabled = true
+development_branch = "develop"
+# production_branch = "main"   # defaults to [release].branch
+hotfix_prefixes = ["hotfix/"]
+tag_pattern = "v*"
+release_branch_prefix = "relx/promote"
+# baseline_version = "0.2.0"   # bootstrap floor for the active tag line
+preview_marker = "<!-- relx-release-preview -->"
+```
+
+- `enabled`: turn on `relx release preview-pr` / `relx release release`
+- `development_branch`: long-lived branch promoted to production
+- `production_branch`: production branch; falls back to `[release].branch`
+  when empty
+- `hotfix_prefixes`: head-branch prefixes accepted as hotfix promotion PRs
+  alongside the development branch
+- `tag_pattern`: glob (`*`, `?`) selecting the active tag series. Use e.g.
+  `v0.*` to retire historical `v1.*` tags and restart the active line
+- `release_branch_prefix`: prefix for generated promotion branches, used
+  only when `[[version_files]]` is configured
+- `baseline_version`: explicit bootstrap version for the active line. Tags
+  below it are ignored; when no matching tag exists yet, it becomes the
+  current version instead of `versioning.initial_version`
+- `preview_marker`: HTML marker identifying the sticky preview comment,
+  used only for pre-existing user-owned PRs in tag-only mode
+
+Two preview paths:
+
+- **Versioned** — with `[[version_files]]`, preview generates a
+  `relx/promote/*` branch from the promotion head with the version bump and
+  changelog entry, opening a single PR to production that carries code plus
+  versioning. `release` additionally asserts the merged version files equal
+  the previewed version.
+- **Tag-only** — without `[[version_files]]`, no branch or file change is
+  made; the `develop → main` PR itself carries the preview in its
+  relx-managed body, or in one sticky comment when the PR is user-owned.
+
+Workflow sketch:
+
+1. `relx release preview-pr` calculates the next version from Conventional
+   Commits absent from the production baseline and publishes the preview on
+   the promotion PR.
+2. Reviewers approve the PR with the exact version and notes visible.
+3. After merge, `relx release release --pr <number>` verifies the preview
+   is still fresh and creates the annotated tag plus GitHub Release.

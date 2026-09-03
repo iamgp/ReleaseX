@@ -148,6 +148,67 @@ relx release publish
 relx release publish --dry-run
 ```
 
+### `relx release preview-pr`
+
+Preview a promotion release on an existing or newly created
+development → production PR. Requires `[promotion] enabled = true`.
+
+```bash
+relx release preview-pr
+relx release preview-pr --head hotfix/login-loop --pr 42
+relx release preview-pr --dry-run
+relx release preview-pr --json
+```
+
+`preview-pr` finds the open `<development> → <production>` PR (or creates
+it when no such PR exists), calculates the next version from the
+Conventional Commits in the PR range, and publishes the preview.
+
+Two paths, selected by config:
+
+- **Versioned** (`[[version_files]]` configured): preview cuts a generated
+  `relx/promote/*` branch from the promotion head, applies the version bump
+  and changelog entry, and opens one PR to production carrying code plus
+  versioning. The preview lives in the relx-managed PR title/body; no
+  comment is posted.
+- **Tag-only** (no `[[version_files]]`): no branch is generated. The
+  `develop → main` PR itself is found or created, and the preview lives in
+  the PR body for relx-managed PRs or in one idempotent sticky comment for
+  pre-existing user PRs.
+
+Machine-readable outputs: `pr_number`, `version`, `tag_name`,
+`release_notes`, `source_sha`, and `base_sha` (stdout, `--json`, and
+`$GITHUB_OUTPUT`).
+
+No release branch, version commit, changelog-file edit, label, or tag is
+created by preview mode.
+
+### `relx release release`
+
+Cut the release for a merged promotion PR. Requires `[promotion] enabled = true`.
+
+```bash
+relx release release --pr 42
+relx release release --dry-run
+relx release release --json
+```
+
+`release` verifies the PR was merged, re-derives the version from the
+merged commits, and fails rather than tagging when the PR changed after
+its preview (stale version or notes). On success it creates the annotated
+tag and GitHub Release and emits `release_created`, `version`, and
+`tag_name`.
+
+### `relx release forward-port`
+
+Open a production → development PR to carry hotfixes back to `develop`.
+No-ops when `develop` already contains production.
+
+```bash
+relx release forward-port
+relx release forward-port --dry-run
+```
+
 ## Pre-release kinds
 
 Accepted values for `--pre-release`:

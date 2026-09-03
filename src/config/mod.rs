@@ -26,6 +26,8 @@ pub struct Config {
     #[serde(default)]
     pub prerelease: PrereleaseConfig,
     #[serde(default)]
+    pub promotion: PromotionConfig,
+    #[serde(default)]
     pub ci: CiConfig,
     #[serde(default)]
     pub channels: Vec<ChannelConfig>,
@@ -49,7 +51,7 @@ impl Config {
             bail!("release.tag_prefix must not be empty");
         }
 
-        if !self.monorepo.enabled && self.version_files.is_empty() {
+        if !self.monorepo.enabled && self.version_files.is_empty() && !self.promotion.enabled {
             bail!("at least one [[version_files]] entry is required");
         }
 
@@ -73,6 +75,7 @@ impl Config {
         validate_workspace_config(&self.workspace)?;
         validate_replacements(&self.release.replacements)?;
         validate_transformers(&self.release.transformers)?;
+        validate_promotion_config(&self.promotion, &self.release)?;
 
         for channel in &self.channels {
             if channel.branch.trim().is_empty() {
@@ -708,6 +711,123 @@ impl Default for PrereleaseVerifyConfig {
             emit_install_command: default_prerelease_verify_emit_install_command(),
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PromotionConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_promotion_development_branch")]
+    pub development_branch: String,
+    #[serde(default)]
+    pub production_branch: String,
+    #[serde(default = "default_promotion_hotfix_prefixes")]
+    pub hotfix_prefixes: Vec<String>,
+    #[serde(default = "default_promotion_tag_pattern")]
+    pub tag_pattern: String,
+    #[serde(default = "default_promotion_release_branch_prefix")]
+    pub release_branch_prefix: String,
+    #[serde(default)]
+    pub baseline_version: Option<String>,
+    #[serde(default = "default_promotion_preview_marker")]
+    pub preview_marker: String,
+}
+
+impl Default for PromotionConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            development_branch: default_promotion_development_branch(),
+            production_branch: String::new(),
+            hotfix_prefixes: default_promotion_hotfix_prefixes(),
+            tag_pattern: default_promotion_tag_pattern(),
+            release_branch_prefix: default_promotion_release_branch_prefix(),
+            baseline_version: None,
+            preview_marker: default_promotion_preview_marker(),
+        }
+    }
+}
+
+impl PromotionConfig {
+    pub fn production_branch_for(&self, release_branch: &str) -> String {
+        if self.production_branch.trim().is_empty() {
+            release_branch.to_string()
+        } else {
+            self.production_branch.clone()
+        }
+    }
+
+    pub fn is_promotion_head(&self, head_branch: &str) -> bool {
+        head_branch == self.development_branch
+            || self
+                .hotfix_prefixes
+                .iter()
+                .any(|prefix| head_branch.starts_with(prefix))
+    }
+}
+
+fn default_promotion_development_branch() -> String {
+    "develop".to_string()
+}
+
+fn default_promotion_hotfix_prefixes() -> Vec<String> {
+    vec!["hotfix/".to_string()]
+}
+
+fn default_promotion_tag_pattern() -> String {
+    "v*".to_string()
+}
+
+fn default_promotion_release_branch_prefix() -> String {
+    "relx/promote".to_string()
+}
+
+fn default_promotion_preview_marker() -> String {
+    "<!-- relx-release-preview -->".to_string()
+}
+
+fn validate_promotion_config(promotion: &PromotionConfig, release: &ReleaseConfig) -> Result<()> {
+    if !promotion.enabled {
+        return Ok(());
+    }
+    if promotion.development_branch.trim().is_empty() {
+        bail!("promotion.development_branch must not be empty when promotion is enabled");
+    }
+    let production = promotion.production_branch_for(&release.branch);
+    if production.trim().is_empty() {
+        bail!("promotion production branch must not be empty when promotion is enabled");
+    }
+    if promotion.production_branch_for(&release.branch) == promotion.development_branch {
+        bail!("promotion.development_branch must differ from the production branch");
+    }
+    if promotion.tag_pattern.trim().is_empty() {
+        bail!("promotion.tag_pattern must not be empty when promotion is enabled");
+    }
+    if !promotion.tag_pattern.contains('*') && !promotion.tag_pattern.contains('?') {
+        bail!("promotion.tag_pattern must contain a `*` or `?` wildcard");
+    }
+    for prefix in &promotion.hotfix_prefixes {
+        if prefix.trim().is_empty() {
+            bail!("promotion.hotfix_prefixes entries must not be empty");
+        }
+    }
+    if promotion.preview_marker.trim().is_empty() {
+        bail!("promotion.preview_marker must not be empty when promotion is enabled");
+    }
+    if promotion.release_branch_prefix.trim().is_empty() {
+        bail!("promotion.release_branch_prefix must not be empty when promotion is enabled");
+    }
+    if let Some(baseline) = promotion.baseline_version.as_deref()
+        && !baseline.trim().is_empty()
+    {
+        baseline
+            .trim()
+            .parse::<crate::version::Version>()
+            .with_context(|| {
+                format!("promotion.baseline_version `{baseline}` is not a valid version")
+            })?;
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

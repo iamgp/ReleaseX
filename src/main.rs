@@ -10,6 +10,7 @@ mod git;
 mod github;
 mod prerelease;
 mod progress;
+mod promotion;
 mod publish;
 mod pypi;
 mod replacements;
