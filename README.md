@@ -235,7 +235,7 @@ relx release publish --skip-published  # skip packages already on PyPI (useful f
 
 #### `relx release preview-pr`
 
-Preview a promotion release on the development → production PR. Requires `[promotion] enabled = true` in config. With `[[version_files]]` configured it cuts a generated `relx/promote/*` branch from `develop`, applies the version bump and changelog entry, and opens a single PR to `main` carrying code plus versioning. Without version files (tag-only) it finds or creates the `develop -> main` PR directly, publishing the preview in the PR body — or in one idempotent sticky comment on pre-existing user-owned PRs. Emits `pr_number`, `version`, `tag_name`, `release_notes`, `source_sha`, and `base_sha` outputs.
+Preview a promotion release on the development → production PR. Requires `[promotion] enabled = true` in config. With `[[version_files]]` configured it cuts a generated `relx/promote/*` branch from `develop`, applies the version bump and changelog entry, and opens a single PR to `main` carrying code plus versioning. Without version files (tag-only) it finds or creates the `develop → main` PR directly, publishing the preview in the PR body — or in one idempotent sticky comment on pre-existing user-owned PRs. Emits `pr_number`, `version`, `tag_name`, `release_notes`, `source_sha`, and `base_sha` outputs.
 
 ```bash
 relx release preview-pr
@@ -243,18 +243,18 @@ relx release preview-pr --head hotfix/login-loop --pr 42
 relx release preview-pr --dry-run
 ```
 
-#### `relx release promote`
+#### `relx release finalize`
 
 Tag and release a merged promotion PR. Requires `[promotion] enabled = true` in config. Fails rather than tagging when the PR changed after its preview. Emits `release_created`, `version`, and `tag_name` outputs.
 
 ```bash
-relx release promote --pr 42
-relx release promote --dry-run
+relx release finalize --pr 42
+relx release finalize --dry-run
 ```
 
 #### `relx release forward-port`
 
-Open a production → development PR carrying hotfixes back to `develop`. No-ops when `develop` already contains production. Run after `promote` in the production workflow.
+Open a production → development PR carrying hotfixes back to `develop`. No-ops when `develop` already contains production. Run after `finalize` in the production workflow.
 
 ```bash
 relx release forward-port

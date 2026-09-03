@@ -26,7 +26,7 @@ pub struct PreviewOptions {
 }
 
 #[derive(Debug, Clone)]
-pub struct PromoteOptions {
+pub struct FinalizeOptions {
     pub pr_number: Option<u64>,
     pub json: bool,
 }
@@ -325,7 +325,7 @@ pub fn render_promotion_pr_body(plan: &PromotionPlan, tag_name: Option<&str>) ->
 }
 
 /// Hidden machine-readable preview state embedded in relx-managed PR bodies.
-/// This is the freshness anchor `promote` verifies; relx-managed PRs carry
+/// This is the freshness anchor `finalize` verifies; relx-managed PRs carry
 /// the same information visibly above, so no sticky comment is needed.
 pub fn render_preview_metadata(
     version: &str,
@@ -372,11 +372,11 @@ pub fn parse_preview_metadata(body: &str) -> Option<ParsedPreview> {
 pub fn render_promotion_pr_title(plan: &PromotionPlan) -> String {
     match &plan.tag_name {
         Some(tag) => format!(
-            "chore(promote): {} -> {} ({})",
+            "chore(finalize): {} → {} ({})",
             plan.head_branch, plan.base_branch, tag
         ),
         None => format!(
-            "chore(promote): {} -> {}",
+            "chore(finalize): {} → {}",
             plan.head_branch, plan.base_branch
         ),
     }
@@ -517,7 +517,7 @@ fn resolve_preview_refs(
         let details = client.get_pr(number)?;
         if details.base.ref_name != base_branch || details.head.ref_name != head_branch {
             bail!(
-                "PR #{number} is {} -> {}, expected {head_branch} -> {base_branch}",
+                "PR #{number} is {} → {}, expected {head_branch} → {base_branch}",
                 details.head.ref_name,
                 details.base.ref_name
             );
@@ -551,7 +551,7 @@ fn github_client(repo: &GitRepository, config: &Config) -> Result<GitHubClient> 
     GitHubClient::new(&config.github.api_base, &token, repo_ref)
 }
 
-/// Create the develop/hotfix -> production PR when it does not exist, and
+/// Create the develop/hotfix → production PR when it does not exist, and
 /// refresh the title/body of PRs previously created by relx. Pre-existing
 /// user-owned PRs are left untouched. Returns the PR number and whether the
 /// PR is relx-managed (created by relx or carrying its marker); only
@@ -565,7 +565,7 @@ pub fn ensure_promotion_pr(
         let details = client.get_pr(number)?;
         if details.base.ref_name != plan.base_branch || details.head.ref_name != plan.head_branch {
             bail!(
-                "PR #{number} is {} -> {}, expected {} -> {}",
+                "PR #{number} is {} → {}, expected {} → {}",
                 details.head.ref_name,
                 details.base.ref_name,
                 plan.head_branch,
@@ -663,7 +663,7 @@ pub fn execute_preview(
 
     if dry_run {
         println!(
-            "Would ensure {} -> {} promotion PR exists (tag-only, no generated branch)",
+            "Would ensure {} → {} promotion PR exists (tag-only, no generated branch)",
             head_branch, base_branch
         );
         println!("Would refresh the relx-managed PR body with the preview");
@@ -709,7 +709,7 @@ pub fn execute_preview(
         .map(|details| details.title)
         .unwrap_or_default();
 
-    println!("Promotion PR ready: #{pr_number} {head_branch} -> {base_branch}");
+    println!("Promotion PR ready: #{pr_number} {head_branch} → {base_branch}");
     if !pr_title.is_empty() {
         println!("PR title: {pr_title}");
     }
@@ -743,7 +743,7 @@ pub fn execute_versioned_preview(
     let Some(next_version) = plan.next_version.clone() else {
         if dry_run {
             println!(
-                "Would ensure {} -> {} promotion PR exists ({})",
+                "Would ensure {} → {} promotion PR exists ({})",
                 plan.head_branch, plan.base_branch, branch
             );
             println!("No releasable changes pending; no branch or PR would be changed");
@@ -768,7 +768,7 @@ pub fn execute_versioned_preview(
             config.release.changelog_file
         );
         println!(
-            "Would create or update PR `{}` ({} -> {})",
+            "Would create or update PR `{}` ({} → {})",
             title, branch, plan.base_branch
         );
         emit_preview_outputs(plan, options.pr_number.unwrap_or(0), options.json)?;
@@ -821,7 +821,7 @@ pub fn execute_versioned_preview(
         // commit itself never contributes to a future bump or changelog and
         // promote-time recomputation matches the preview exactly.
         let commit_message = format!(
-            "relx promote {} -> {} ({})",
+            "relx finalize {} → {} ({})",
             plan.head_branch,
             plan.base_branch,
             plan.tag_name.as_deref().unwrap_or("no release")
@@ -848,7 +848,7 @@ pub fn execute_versioned_preview(
     plan.pr_number = Some(pr.number);
 
     println!(
-        "Promotion PR ready: #{} {} ({} -> {})",
+        "Promotion PR ready: #{} {} ({} → {})",
         pr.number, title, branch, plan.base_branch
     );
     println!(
@@ -859,10 +859,10 @@ pub fn execute_versioned_preview(
     Ok(plan.clone())
 }
 
-pub fn execute_promote(
+pub fn execute_finalize(
     repo: &GitRepository,
     config: &Config,
-    options: &PromoteOptions,
+    options: &FinalizeOptions,
     dry_run: bool,
 ) -> Result<()> {
     if !config.promotion.enabled {
@@ -880,12 +880,12 @@ pub fn execute_promote(
         Some(number) => client.get_pr(number)?,
         None => client
             .find_merged_pr(&head_branch, &production)?
-            .context("no merged develop -> production PR found; pass --pr <number>")?,
+            .context("no merged develop → production PR found; pass --pr <number>")?,
     };
 
     if !details.merged {
         bail!(
-            "PR #{} is not merged; promote runs after the promotion PR is merged",
+            "PR #{} is not merged; finalize runs after the promotion PR is merged",
             details.number
         );
     }
@@ -993,7 +993,7 @@ pub fn execute_promote(
         println!("Would tag {current_tag} at {}", short_sha(&merge_sha));
         println!("Would create or update GitHub Release {current_tag}");
         println!("{}", current.release_notes);
-        emit_promote_outputs(false, &current_tag, &current_tag, options.json)?;
+        emit_finalize_outputs(false, &current_tag, &current_tag, options.json)?;
         return Ok(());
     }
 
@@ -1004,11 +1004,11 @@ pub fn execute_promote(
         .as_ref()
         .map(ToString::to_string)
         .unwrap_or_default();
-    emit_promote_outputs(release_created, &version, &current_tag, options.json)?;
+    emit_finalize_outputs(release_created, &version, &current_tag, options.json)?;
     Ok(())
 }
 
-fn emit_promote_outputs(
+fn emit_finalize_outputs(
     release_created: bool,
     version: &str,
     tag_name: &str,
@@ -1092,7 +1092,7 @@ fn create_tag_and_release(
 }
 
 /// Forward-port production back into development after a hotfix. Creates
-/// (or refreshes, when relx-managed) a production -> development PR so the
+/// (or refreshes, when relx-managed) a production → development PR so the
 /// hotfix is not lost on the next promotion. No-ops when development
 /// already contains production.
 pub fn execute_forward_port(
@@ -1121,7 +1121,7 @@ pub fn execute_forward_port(
         return Ok(None);
     }
 
-    let title = format!("chore: forward-port {production} -> {development}");
+    let title = format!("chore: forward-port {production} → {development}");
     if dry_run {
         println!("Would ensure PR `{title}` exists");
         return Ok(None);

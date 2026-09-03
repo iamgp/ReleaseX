@@ -151,7 +151,7 @@ relx release publish --dry-run
 ### `relx release preview-pr`
 
 Preview a promotion release on an existing or newly created
-development -> production PR. Requires `[promotion] enabled = true`.
+development → production PR. Requires `[promotion] enabled = true`.
 
 ```bash
 relx release preview-pr
@@ -160,7 +160,7 @@ relx release preview-pr --dry-run
 relx release preview-pr --json
 ```
 
-`preview-pr` finds the open `<development> -> <production>` PR (or creates
+`preview-pr` finds the open `<development> → <production>` PR (or creates
 it when no such PR exists), calculates the next version from the
 Conventional Commits in the PR range, and publishes the preview.
 
@@ -172,7 +172,7 @@ Two paths, selected by config:
   versioning. The preview lives in the relx-managed PR title/body; no
   comment is posted.
 - **Tag-only** (no `[[version_files]]`): no branch is generated. The
-  `develop -> main` PR itself is found or created, and the preview lives in
+  `develop → main` PR itself is found or created, and the preview lives in
   the PR body for relx-managed PRs or in one idempotent sticky comment for
   pre-existing user PRs.
 
@@ -183,17 +183,17 @@ Machine-readable outputs: `pr_number`, `version`, `tag_name`,
 No release branch, version commit, changelog-file edit, label, or tag is
 created by preview mode.
 
-### `relx release promote`
+### `relx release finalize`
 
 Tag and release a merged promotion PR. Requires `[promotion] enabled = true`.
 
 ```bash
-relx release promote --pr 42
-relx release promote --dry-run
-relx release promote --json
+relx release finalize --pr 42
+relx release finalize --dry-run
+relx release finalize --json
 ```
 
-`promote` verifies the PR was merged, re-derives the version from the
+`finalize` verifies the PR was merged, re-derives the version from the
 merged commits, and fails rather than tagging when the PR changed after
 its preview (stale version or notes). On success it creates the annotated
 tag and GitHub Release and emits `release_created`, `version`, and

@@ -43,7 +43,7 @@ outputs:
     description: Production base SHA the preview was validated against.
     value: ${{ steps.relx.outputs.base_sha }}
   release_created:
-    description: Whether `release promote` created a new tag and release (`true`/`false`).
+    description: Whether `release finalize` created a new tag and release (`true`/`false`).
     value: ${{ steps.relx.outputs.release_created }}
 
 runs:
