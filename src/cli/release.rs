@@ -257,34 +257,50 @@ fn adjust_for_merged_release_pr(
         .and_then(|s| s.parse::<Version>().ok());
 
     let Some(tag_version) = latest_tag_version else {
+        // No tags yet: if the version files are already ahead of the initial
+        // version, the first release PR has been merged — tag the current
+        // version as-is instead of bumping the full history again.
+        let initial: Version = config.versioning.initial_version.parse().with_context(|| {
+            format!(
+                "versioning.initial_version `{}` is not a valid version",
+                config.versioning.initial_version
+            )
+        })?;
+        if analysis.current_version > initial {
+            snap_to_current_version(config, analysis);
+        }
         return Ok(());
     };
 
     // If current version (from files) is already ahead of the latest tag,
     // the release PR has been merged — tag the current version as-is.
     if analysis.current_version > tag_version {
-        let version = analysis.current_version.clone();
-        analysis.next_version = Some(version.clone());
-        analysis.bump = BumpLevel::None;
-        analysis.changelog = PendingChangelog::from_commits(
-            config,
-            &analysis
-                .commits
-                .iter()
-                .filter_map(|c| {
-                    crate::conventional_commits::ConventionalCommit::parse_message(&c.message).ok()
-                })
-                .collect::<Vec<_>>(),
-        );
-        for package in &mut analysis.package_plan.packages {
-            if package.selected {
-                package.next_version = Some(version.clone());
-                package.bump = BumpLevel::None;
-            }
-        }
+        snap_to_current_version(config, analysis);
     }
 
     Ok(())
+}
+
+fn snap_to_current_version(config: &Config, analysis: &mut analysis::ReleaseAnalysis) {
+    let version = analysis.current_version.clone();
+    analysis.next_version = Some(version.clone());
+    analysis.bump = BumpLevel::None;
+    analysis.changelog = PendingChangelog::from_commits(
+        config,
+        &analysis
+            .commits
+            .iter()
+            .filter_map(|c| {
+                crate::conventional_commits::ConventionalCommit::parse_message(&c.message).ok()
+            })
+            .collect::<Vec<_>>(),
+    );
+    for package in &mut analysis.package_plan.packages {
+        if package.selected {
+            package.next_version = Some(version.clone());
+            package.bump = BumpLevel::None;
+        }
+    }
 }
 
 fn analyze_for_publish(repo: &GitRepository, config: &Config) -> Result<analysis::ReleaseAnalysis> {
@@ -485,8 +501,8 @@ mod tests {
     use tempfile::tempdir;
 
     use super::{
-        analyze_for_publish, apply_next_version_override, apply_pre_release_override,
-        validate_next_version_channel, validate_tag_next_version,
+        adjust_for_merged_release_pr, analyze_for_publish, apply_next_version_override,
+        apply_pre_release_override, validate_next_version_channel, validate_tag_next_version,
     };
     use crate::analysis::{PackagePlan, PackageReleaseAnalysis, ReleaseAnalysis};
     use crate::changelog::PendingChangelog;
@@ -494,6 +510,40 @@ mod tests {
     use crate::config::Config;
     use crate::git::GitRepository;
     use crate::version::{BumpLevel, PreRelease, Suffix, Version};
+
+    #[test]
+    fn merged_first_release_pr_tags_current_version_without_tags() {
+        let repo_dir = tempdir().expect("tempdir");
+        let repo_path = repo_dir.path();
+
+        git(repo_path, &["init", "-b", "main"]);
+        git(repo_path, &["config", "user.name", "Relx Test"]);
+        git(repo_path, &["config", "user.email", "relx@example.com"]);
+        git(repo_path, &["config", "commit.gpgsign", "false"]);
+        git(repo_path, &["config", "tag.gpgsign", "false"]);
+        fs::write(
+            repo_path.join("package.json"),
+            "{\"name\": \"demo\", \"version\": \"0.2.0\"}",
+        )
+        .expect("write manifest");
+        fs::write(
+            repo_path.join("relx.toml"),
+            "[versioning]\ninitial_version = \"0.1.0\"\n\n[[version_files]]\npath = \"package.json\"\nkey = \"version\"\n",
+        )
+        .expect("write config");
+        git(repo_path, &["add", "."]);
+        git(repo_path, &["commit", "-m", "feat: initial package"]);
+
+        let repo = GitRepository::discover(repo_path).expect("repo");
+        let config = Config::load(&repo_path.join("relx.toml")).expect("config");
+        let mut analysis = crate::analysis::analyze(&repo, &config).expect("analysis");
+        assert_eq!(analysis.next_version.as_ref().unwrap().to_string(), "0.3.0");
+
+        adjust_for_merged_release_pr(&repo, &config, &mut analysis).expect("adjust");
+
+        assert_eq!(analysis.next_version.as_ref().unwrap().to_string(), "0.2.0");
+        assert_eq!(analysis.bump, BumpLevel::None);
+    }
 
     #[test]
     fn analyze_for_publish_uses_previous_tag_for_release_set_tag_commits() {
@@ -957,5 +1007,20 @@ version = "0.2.4"
             .status()
             .expect("command should run");
         assert!(status.success(), "command failed: {args:?}");
+    }
+
+    fn git(repo_path: &std::path::Path, args: &[&str]) {
+        let status = Command::new("git")
+            .args(args)
+            .env("GIT_CONFIG_COUNT", "2")
+            .env("GIT_CONFIG_KEY_0", "commit.gpgsign")
+            .env("GIT_CONFIG_VALUE_0", "false")
+            .env("GIT_CONFIG_KEY_1", "tag.gpgsign")
+            .env("GIT_CONFIG_VALUE_1", "false")
+            .env("GIT_EDITOR", "true")
+            .current_dir(repo_path)
+            .status()
+            .expect("git should run");
+        assert!(status.success(), "git failed: {args:?}");
     }
 }
