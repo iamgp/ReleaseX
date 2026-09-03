@@ -694,9 +694,7 @@ pub fn build_release_pr_plan(
         &config.changelog.first_contribution_emoji,
     );
     let prerelease_body = prerelease_pr_body(config, analysis)?;
-    let body = format!(
-        "## Release summary\n\n{release_notes}\n\n## Maintainer checklist\n- [ ] Review version bump\n- [ ] Review changelog\n- [ ] Merge to cut the release"
-    ) + &prerelease_body;
+    let body = format!("## Release summary\n\n{release_notes}") + &prerelease_body;
 
     Ok(ReleasePrPlan {
         version,
