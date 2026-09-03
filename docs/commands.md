@@ -148,6 +148,49 @@ relx release publish
 relx release publish --dry-run
 ```
 
+### `relx release preview-pr`
+
+Preview a promotion release on an existing or newly created
+development -> production PR. Requires `[promotion] enabled = true`.
+
+```bash
+relx release preview-pr
+relx release preview-pr --head hotfix/login-loop --pr 42
+relx release preview-pr --dry-run
+relx release preview-pr --json
+```
+
+`preview-pr` finds the open `<development> -> <production>` PR (or creates
+it when no such PR exists), calculates the next version from the
+Conventional Commits in the PR range, and maintains one idempotent sticky
+comment with the proposed version and release notes. Repositories owned by
+relx (marked in the PR body) also get their title and body refreshed.
+Pre-existing user PRs keep their own title and body; only the sticky
+comment is managed.
+
+Machine-readable outputs: `pr_number`, `version`, `tag_name`,
+`release_notes`, `source_sha`, and `base_sha` (stdout, `--json`, and
+`$GITHUB_OUTPUT`).
+
+No release branch, version commit, changelog-file edit, label, or tag is
+created by preview mode.
+
+### `relx release promote`
+
+Tag and release a merged promotion PR. Requires `[promotion] enabled = true`.
+
+```bash
+relx release promote --pr 42
+relx release promote --dry-run
+relx release promote --json
+```
+
+`promote` verifies the PR was merged, re-derives the version from the
+merged commits, and fails rather than tagging when the PR changed after
+its preview (stale version or notes). On success it creates the annotated
+tag and GitHub Release and emits `release_created`, `version`, and
+`tag_name`.
+
 ## Pre-release kinds
 
 Accepted values for `--pre-release`:

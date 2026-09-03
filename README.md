@@ -233,6 +233,25 @@ relx release publish --dry-run
 relx release publish --skip-published  # skip packages already on PyPI (useful for retries)
 ```
 
+#### `relx release preview-pr`
+
+Preview a promotion release on the development → production PR. Requires `[promotion] enabled = true` in config. Finds or creates the `develop -> main` PR, calculates the next version from Conventional Commits, and maintains one idempotent sticky preview comment. Emits `pr_number`, `version`, `tag_name`, `release_notes`, `source_sha`, and `base_sha` outputs. No version or changelog files are modified.
+
+```bash
+relx release preview-pr
+relx release preview-pr --head hotfix/login-loop --pr 42
+relx release preview-pr --dry-run
+```
+
+#### `relx release promote`
+
+Tag and release a merged promotion PR. Requires `[promotion] enabled = true` in config. Fails rather than tagging when the PR changed after its preview. Emits `release_created`, `version`, and `tag_name` outputs.
+
+```bash
+relx release promote --pr 42
+relx release promote --dry-run
+```
+
 ## GitHub Actions
 
 The recommended workflow uses the `ReleaseX/action` wrapper, which downloads the correct binary for your runner — no Rust or Node runtime needed.

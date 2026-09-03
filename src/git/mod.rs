@@ -185,6 +185,90 @@ impl GitRepository {
             Err(_) => Ok(None),
         }
     }
+
+    pub fn rev_parse(&self, reference: &str) -> Result<String> {
+        let object = self
+            .inner
+            .revparse_single(reference)
+            .with_context(|| format!("reference '{reference}' not found"))?;
+        let commit = object
+            .peel_to_commit()
+            .with_context(|| format!("reference '{reference}' does not point to a commit"))?;
+        Ok(commit.id().to_string())
+    }
+
+    pub fn list_tags(&self) -> Result<Vec<String>> {
+        Ok(self
+            .inner
+            .tag_names(None)?
+            .iter()
+            .filter_map(|name| name.map(str::to_string))
+            .collect())
+    }
+
+    /// Commits reachable from `head_ref` that are not reachable from `base_ref`,
+    /// ordered oldest-first. This is the `base..head` range used to model what a
+    /// promotion PR would introduce onto the production branch.
+    pub fn commits_in_range(
+        &self,
+        base_ref: &str,
+        head_ref: &str,
+    ) -> Result<Vec<CommitSummary>> {
+        let head = self
+            .inner
+            .revparse_single(head_ref)
+            .with_context(|| format!("reference '{head_ref}' not found"))?
+            .peel_to_commit()
+            .with_context(|| format!("reference '{head_ref}' does not point to a commit"))?;
+        let base = self
+            .inner
+            .revparse_single(base_ref)
+            .with_context(|| format!("reference '{base_ref}' not found"))?
+            .peel_to_commit()
+            .with_context(|| format!("reference '{base_ref}' does not point to a commit"))?;
+
+        let mut revwalk = self.inner.revwalk().context("failed to create revwalk")?;
+        revwalk.push(head.id())?;
+        revwalk.hide(base.id())?;
+
+        let mut commits = Vec::new();
+        for oid in revwalk {
+            let oid = oid?;
+            let commit = self.inner.find_commit(oid)?;
+            let changed_paths = changed_paths_for_commit(&self.inner, &commit)?;
+            commits.push(CommitSummary {
+                id: oid.to_string(),
+                message: commit.message().unwrap_or_default().trim().to_string(),
+                changed_paths,
+                author: commit.author().name().unwrap_or("unknown").to_string(),
+                raw_author: commit.author().name().unwrap_or("unknown").to_string(),
+            });
+        }
+
+        commits.reverse();
+        Ok(commits)
+    }
+
+    pub fn is_ancestor(&self, ancestor_ref: &str, descendant_ref: &str) -> Result<bool> {
+        let ancestor = self
+            .inner
+            .revparse_single(ancestor_ref)
+            .with_context(|| format!("reference '{ancestor_ref}' not found"))?
+            .peel_to_commit()
+            .with_context(|| format!("reference '{ancestor_ref}' does not point to a commit"))?
+            .id();
+        let descendant = self
+            .inner
+            .revparse_single(descendant_ref)
+            .with_context(|| format!("reference '{descendant_ref}' not found"))?
+            .peel_to_commit()
+            .with_context(|| format!("reference '{descendant_ref}' does not point to a commit"))?
+            .id();
+        match self.inner.merge_base(ancestor, descendant) {
+            Ok(base) => Ok(base == ancestor),
+            Err(_) => Ok(false),
+        }
+    }
 }
 
 fn changed_paths_for_commit(inner: &Repository, commit: &git2::Commit<'_>) -> Result<Vec<String>> {

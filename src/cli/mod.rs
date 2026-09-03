@@ -77,6 +77,8 @@ pub enum ReleaseSubcommand {
     Prepare(PrepareArgs),
     Tag(PreReleaseArgs),
     Publish(PublishArgs),
+    PreviewPr(PreviewPrArgs),
+    Promote(PromoteArgs),
 }
 
 #[derive(Debug, Args)]
@@ -126,6 +128,35 @@ pub struct PublishArgs {
     /// Skip packages that are already published to PyPI/crates.io
     #[arg(long)]
     pub skip_published: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct PreviewPrArgs {
+    /// Existing promotion PR number. When omitted, relx finds or creates the
+    /// development -> production PR.
+    #[arg(long)]
+    pub pr: Option<u64>,
+    /// Promotion head branch (defaults to [promotion].development_branch).
+    /// Use a `hotfix/*` branch to preview a hotfix PR.
+    #[arg(long)]
+    pub head: Option<String>,
+    /// Production base branch (defaults to the configured production branch).
+    #[arg(long)]
+    pub base: Option<String>,
+    /// Emit machine-readable outputs as JSON.
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct PromoteArgs {
+    /// Merged promotion PR number. When omitted, relx looks up the most
+    /// recently merged development -> production PR.
+    #[arg(long)]
+    pub pr: Option<u64>,
+    /// Emit machine-readable outputs as JSON.
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Debug, Clone, clap::ValueEnum)]

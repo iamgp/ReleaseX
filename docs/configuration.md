@@ -281,3 +281,44 @@ prerelease = "b"
 branch = "next"
 publish = false
 ```
+
+## `[promotion]`
+
+Promotion mode supports a two-long-lived-branch delivery model
+(`feature/fix -> develop -> main`, `hotfix/* -> main`) with tag-only,
+VCS-derived versioning. No `[[version_files]]` entries are required when
+`enabled = true`, and no version or changelog files are ever modified in
+this mode. The tag is the version authority.
+
+```toml
+[promotion]
+enabled = true
+development_branch = "develop"
+# production_branch = "main"   # defaults to [release].branch
+hotfix_prefixes = ["hotfix/"]
+tag_pattern = "v*"
+# baseline_version = "0.2.0"   # bootstrap floor for the active tag line
+preview_marker = "<!-- relx-release-preview -->"
+```
+
+- `enabled`: turn on `relx release preview-pr` / `relx release promote`
+- `development_branch`: long-lived branch promoted to production
+- `production_branch`: production branch; falls back to `[release].branch`
+  when empty
+- `hotfix_prefixes`: head-branch prefixes accepted as hotfix promotion PRs
+  alongside the development branch
+- `tag_pattern`: glob (`*`, `?`) selecting the active tag series. Use e.g.
+  `v0.*` to retire historical `v1.*` tags and restart the active line
+- `baseline_version`: explicit bootstrap version for the active line. Tags
+  below it are ignored; when no matching tag exists yet, it becomes the
+  current version instead of `versioning.initial_version`
+- `preview_marker`: HTML marker identifying the sticky preview comment
+
+Workflow sketch:
+
+1. `relx release preview-pr` on the `develop -> main` PR calculates the
+   next version from Conventional Commits absent from the production
+   baseline and maintains the sticky preview comment.
+2. Reviewers approve the PR with the exact version and notes visible.
+3. After merge, `relx release promote --pr <number>` verifies the preview
+   is still fresh and creates the annotated tag plus GitHub Release.

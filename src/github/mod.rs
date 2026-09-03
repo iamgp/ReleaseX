@@ -1702,6 +1702,41 @@ pub struct PullRequestHead {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct PullRequestBranchRef {
+    #[serde(rename = "ref", default)]
+    pub ref_name: String,
+    pub sha: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PullRequestDetails {
+    pub number: u64,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub merged: bool,
+    #[serde(default)]
+    pub merge_commit_sha: Option<String>,
+    #[serde(default)]
+    pub body: String,
+    pub head: PullRequestBranchRef,
+    pub base: PullRequestBranchRef,
+}
+
+impl PullRequestDetails {
+    pub fn has_marker(&self, marker: &str) -> bool {
+        self.body.contains(marker)
+    }
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct IssueComment {
+    pub id: u64,
+    #[serde(default)]
+    pub body: String,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct PullRequestReview {
     pub state: String,
 }
@@ -1741,8 +1776,7 @@ impl GitHubClient {
         &self,
         head_branch: &str,
         base_branch: &str,
-    ) -> Result<Option<PullRequest>> {
-        let url = format!(
+    ) -> Result<Option<PullRequest>> {        let url = format!(
             "{}/repos/{}/{}/pulls?state=open&head={}:{}&base={}",
             self.api_base,
             self.repo.owner,
@@ -1836,11 +1870,69 @@ impl GitHubClient {
         ))
     }
 
+    pub fn find_merged_pr(
+        &self,
+        head_branch: &str,
+        base_branch: &str,
+    ) -> Result<Option<PullRequestDetails>> {
+        let url = format!(
+            "{}/repos/{}/{}/pulls?state=closed&head={}:{}&base={}&sort=updated&direction=desc&per_page=10",
+            self.api_base,
+            self.repo.owner,
+            self.repo.name,
+            self.repo.owner,
+            head_branch,
+            base_branch
+        );
+        let prs: Vec<PullRequest> = self.get(&url)?;
+        for pr in prs {
+            let details = self.get_pr(pr.number)?;
+            if details.merged {
+                return Ok(Some(details));
+            }
+        }
+        Ok(None)
+    }
+
     pub fn commit_details(&self, sha: &str) -> Result<CommitDetails> {
         self.get(&format!(
             "{}/repos/{}/{}/commits/{}",
             self.api_base, self.repo.owner, self.repo.name, sha
         ))
+    }
+
+    pub fn get_pr(&self, number: u64) -> Result<PullRequestDetails> {
+        self.get(&format!(
+            "{}/repos/{}/{}/pulls/{}",
+            self.api_base, self.repo.owner, self.repo.name, number
+        ))
+    }
+
+    pub fn list_issue_comments(&self, number: u64) -> Result<Vec<IssueComment>> {
+        self.get(&format!(
+            "{}/repos/{}/{}/issues/{}/comments?per_page=100",
+            self.api_base, self.repo.owner, self.repo.name, number
+        ))
+    }
+
+    pub fn create_issue_comment(&self, number: u64, body: &str) -> Result<IssueComment> {
+        self.post(
+            &format!(
+                "{}/repos/{}/{}/issues/{}/comments",
+                self.api_base, self.repo.owner, self.repo.name, number
+            ),
+            &json!({ "body": body }),
+        )
+    }
+
+    pub fn update_issue_comment(&self, comment_id: u64, body: &str) -> Result<IssueComment> {
+        self.patch(
+            &format!(
+                "{}/repos/{}/{}/issues/comments/{}",
+                self.api_base, self.repo.owner, self.repo.name, comment_id
+            ),
+            &json!({ "body": body }),
+        )
     }
 
     pub fn token_scopes(&self) -> Result<Vec<String>> {

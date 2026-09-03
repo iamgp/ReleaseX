@@ -120,6 +120,7 @@ fn build_config(repo: Option<&GitRepository>, repo_root: &Path) -> InitPlan {
             github: github_config,
             workspace: Default::default(),
             prerelease: Default::default(),
+            promotion: Default::default(),
             ci: Default::default(),
             channels: Vec::new(),
         },

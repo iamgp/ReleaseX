@@ -23,6 +23,29 @@ inputs:
     required: false
     default: ""
 
+outputs:
+  pr_number:
+    description: Promotion PR number maintained by `release preview-pr`.
+    value: ${{ steps.relx.outputs.pr_number }}
+  version:
+    description: Proposed or released version (no tag prefix).
+    value: ${{ steps.relx.outputs.version }}
+  tag_name:
+    description: Proposed or released tag name.
+    value: ${{ steps.relx.outputs.tag_name }}
+  release_notes:
+    description: Generated release notes for the proposed or created release.
+    value: ${{ steps.relx.outputs.release_notes }}
+  source_sha:
+    description: Promotion head SHA the preview was calculated from.
+    value: ${{ steps.relx.outputs.source_sha }}
+  base_sha:
+    description: Production base SHA the preview was validated against.
+    value: ${{ steps.relx.outputs.base_sha }}
+  release_created:
+    description: Whether `release promote` created a new tag and release (`true`/`false`).
+    value: ${{ steps.relx.outputs.release_created }}
+
 runs:
   using: composite
   steps:
@@ -75,5 +98,6 @@ runs:
         echo "$temp_dir" >> "$GITHUB_PATH"
 
     - name: Run relx
+      id: relx
       shell: bash
       run: relx ${{ inputs.command }} ${{ inputs.args }} ${{ inputs.next-version && format('--next-version {0}', inputs.next-version) }}
