@@ -275,6 +275,17 @@ fn discover_packages(
         return Ok((packages, "go workspace (go.work use)".to_string()));
     }
 
+    if let Some(npm_roots) = discover_npm_workspace(repo_root) {
+        let packages = npm_roots
+            .iter()
+            .map(|package_root| load_package_definition(repo_root, package_root))
+            .collect::<Result<Vec<_>>>()?;
+        return Ok((
+            packages,
+            "npm workspaces (package.json workspaces)".to_string(),
+        ));
+    }
+
     let mut package_roots = Vec::new();
     scan_for_package_roots(repo_root, repo_root, &mut package_roots);
     maybe_include_prerelease_root_package(repo_root, config, &mut package_roots);
@@ -405,6 +416,7 @@ pub fn extract_dependency_names(repo_root: &Path, package_root: &str) -> Vec<Str
         Ecosystem::Python => extract_python_dependency_names(repo_root, package_root),
         Ecosystem::Rust => extract_rust_dependency_names(repo_root, package_root),
         Ecosystem::Go => extract_go_dependency_names(repo_root, package_root),
+        Ecosystem::TypeScript => extract_typescript_dependency_names(repo_root, package_root),
     }
 }
 
@@ -480,6 +492,49 @@ pub fn discover_go_workspace(repo_root: &Path) -> Option<Vec<String>> {
             let normalized = trimmed.trim_matches('"').trim();
             if !normalized.is_empty() && normalized != "." {
                 roots.push(normalized.to_string());
+            }
+        }
+    }
+
+    roots.sort();
+    roots.dedup();
+
+    if roots.is_empty() { None } else { Some(roots) }
+}
+
+pub fn discover_npm_workspace(repo_root: &Path) -> Option<Vec<String>> {
+    let manifest_path = repo_root.join("package.json");
+    let contents = fs::read_to_string(manifest_path).ok()?;
+    let parsed: serde_json::Value = serde_json::from_str(&contents).ok()?;
+    let workspaces = parsed.get("workspaces")?;
+    let patterns: Vec<&str> = match workspaces {
+        serde_json::Value::Array(array) => {
+            array.iter().filter_map(|value| value.as_str()).collect()
+        }
+        serde_json::Value::Object(object) => object
+            .get("packages")?
+            .as_array()?
+            .iter()
+            .filter_map(|value| value.as_str())
+            .collect(),
+        _ => return None,
+    };
+
+    let mut roots = Vec::new();
+    for pattern in patterns {
+        if let Some(prefix) = pattern.strip_suffix("/*") {
+            let parent_dir = repo_root.join(prefix);
+            let entries = fs::read_dir(parent_dir).ok()?;
+            for entry in entries.flatten() {
+                if entry.path().is_dir() && entry.path().join("package.json").exists() {
+                    let rel = format!("{}/{}", prefix, entry.file_name().to_string_lossy());
+                    roots.push(rel);
+                }
+            }
+        } else {
+            let dir = repo_root.join(pattern);
+            if dir.is_dir() && dir.join("package.json").exists() {
+                roots.push(pattern.to_string());
             }
         }
     }
@@ -672,7 +727,7 @@ fn scan_for_package_roots(repo_root: &Path, current: &Path, package_roots: &mut 
 
         if matches!(
             name,
-            ".git" | "target" | ".venv" | "venv" | "__pycache__" | ".mypy_cache"
+            ".git" | "target" | ".venv" | "venv" | "__pycache__" | ".mypy_cache" | "node_modules"
         ) {
             continue;
         }
@@ -682,7 +737,8 @@ fn scan_for_package_roots(repo_root: &Path, current: &Path, package_roots: &mut 
             continue;
         }
 
-        if name != "pyproject.toml" || path.parent() == Some(repo_root) {
+        if (name != "pyproject.toml" && name != "package.json") || path.parent() == Some(repo_root)
+        {
             continue;
         }
 
@@ -704,6 +760,7 @@ fn detect_package_version_files(
         Ecosystem::Python => detect_python_package_version_files(repo_root, package_root),
         Ecosystem::Rust => detect_rust_package_version_files(repo_root, package_root),
         Ecosystem::Go => detect_go_package_version_files(repo_root, package_root),
+        Ecosystem::TypeScript => detect_typescript_package_version_files(repo_root, package_root),
     }
 }
 
@@ -826,6 +883,7 @@ fn is_nested_package_root(path: &Path) -> bool {
     path.join("pyproject.toml").exists()
         || path.join("Cargo.toml").exists()
         || path.join("go.mod").exists()
+        || path.join("package.json").exists()
 }
 
 fn detect_package_name(package_root: &Path) -> Option<String> {
@@ -837,7 +895,11 @@ fn detect_package_name(package_root: &Path) -> Option<String> {
         return Some(name);
     }
 
-    detect_go_package_name(package_root)
+    if let Some(name) = detect_go_package_name(package_root) {
+        return Some(name);
+    }
+
+    detect_typescript_package_name(package_root)
 }
 
 pub fn detect_project_name(repo_root: &Path, package_root: &str) -> Option<String> {
@@ -924,6 +986,52 @@ fn detect_go_package_name(package_root: &Path) -> Option<String> {
 
 fn go_module_short_name(module: &str) -> String {
     module.rsplit('/').next().unwrap_or(module).to_string()
+}
+
+fn detect_typescript_package_version_files(
+    repo_root: &Path,
+    package_root: &Path,
+) -> Result<Vec<VersionFileConfig>> {
+    let manifest_path = package_root.join("package.json");
+    if !manifest_path.exists() {
+        return Ok(Vec::new());
+    }
+
+    Ok(vec![VersionFileConfig {
+        path: relative_to_repo(repo_root, &manifest_path)?,
+        key: Some("version".to_string()),
+        pattern: None,
+    }])
+}
+
+fn detect_typescript_package_name(package_root: &Path) -> Option<String> {
+    let manifest = package_root.join("package.json");
+    let contents = fs::read_to_string(manifest).ok()?;
+    let parsed: serde_json::Value = serde_json::from_str(&contents).ok()?;
+    parsed.get("name")?.as_str().map(ToString::to_string)
+}
+
+fn extract_typescript_dependency_names(repo_root: &Path, package_root: &str) -> Vec<String> {
+    let manifest_path = repo_root.join(package_root).join("package.json");
+    let contents = match fs::read_to_string(manifest_path) {
+        Ok(c) => c,
+        Err(_) => return Vec::new(),
+    };
+    let parsed: serde_json::Value = match serde_json::from_str(&contents) {
+        Ok(v) => v,
+        Err(_) => return Vec::new(),
+    };
+
+    let mut deps = Vec::new();
+    for section in ["dependencies", "devDependencies", "peerDependencies"] {
+        let Some(table) = parsed.get(section).and_then(|v| v.as_object()) else {
+            continue;
+        };
+        deps.extend(table.keys().cloned());
+    }
+    deps.sort();
+    deps.dedup();
+    deps
 }
 
 fn relative_to_repo(repo_root: &Path, path: &Path) -> Result<String> {
@@ -1220,6 +1328,50 @@ enabled = true
         assert_eq!(packages[0].root, ".");
         assert_eq!(packages[1].name, "phlo-iceberg");
         assert_eq!(packages[1].root, "packages/iceberg");
+    }
+
+    #[test]
+    fn npm_workspace_discovery_finds_member_packages() {
+        let dir = tempdir().expect("tempdir");
+        let repo_root = dir.path();
+
+        fs::write(
+            repo_root.join("package.json"),
+            r#"{"name": "acme-app", "version": "1.4.0", "workspaces": ["packages/*"]}"#,
+        )
+        .expect("write root package.json");
+        fs::create_dir_all(repo_root.join("packages/plugin")).expect("create package");
+        fs::write(
+            repo_root.join("packages/plugin/package.json"),
+            r#"{"name": "@acme/plugin", "version": "1.4.0"}"#,
+        )
+        .expect("write package manifest");
+        let config: Config = toml::from_str(
+            r#"
+            [project]
+            ecosystem = "typescript"
+
+            [monorepo]
+            enabled = true
+            release_mode = "release_set"
+            "#,
+        )
+        .expect("config");
+
+        let (packages, source) = discover_packages(repo_root, &config).expect("packages");
+
+        assert_eq!(source, "npm workspaces (package.json workspaces)");
+        assert_eq!(packages.len(), 1);
+        assert_eq!(packages[0].name, "@acme/plugin");
+        assert_eq!(packages[0].root, "packages/plugin");
+        assert_eq!(
+            packages[0].version_files,
+            vec![crate::config::VersionFileConfig {
+                path: "packages/plugin/package.json".to_string(),
+                key: Some("version".to_string()),
+                pattern: None,
+            }]
+        );
     }
 
     #[test]

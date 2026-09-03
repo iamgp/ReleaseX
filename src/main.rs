@@ -8,6 +8,7 @@ mod cratesio;
 mod ecosystem;
 mod git;
 mod github;
+mod npm;
 mod prerelease;
 mod progress;
 mod promotion;

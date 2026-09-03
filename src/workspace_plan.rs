@@ -35,6 +35,7 @@ impl ReleaseWorkspacePlan {
                 Some(Ecosystem::Python) => "python",
                 Some(Ecosystem::Rust) => "rust",
                 Some(Ecosystem::Go) => "go",
+                Some(Ecosystem::TypeScript) => "typescript",
                 None => "unknown",
             }
             .to_string(),

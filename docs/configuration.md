@@ -143,7 +143,7 @@ Replacements run after version and dependency synchronization, before external t
 
 ## `[project]`
 
-- `ecosystem`: optional explicit ecosystem override; supported values are `python`, `rust`, and `go`
+- `ecosystem`: optional explicit ecosystem override; supported values are `python`, `rust`, `go`, and `typescript`
 
 If omitted, `relx` auto-detects the repository type from files such as `pyproject.toml`, `Cargo.toml`, and `go.mod`.
 
@@ -191,7 +191,7 @@ repository can be detected.
 ## `[publish]`
 
 - `enabled`: enables `relx release publish`
-- `provider`: `uv`, `twine`, `cargo`, or `goreleaser`
+- `provider`: `uv`, `twine`, `cargo`, `goreleaser`, or `npm`
 - `repository`: registry name, such as `pypi`, `testpypi`, or `crates-io`
 - `repository_url`: explicit upload URL for custom indexes or TestPyPI
 - `dist_dir`: artifact directory
@@ -206,6 +206,7 @@ Examples:
 - Python with `twine`: `repository_url = "https://test.pypi.org/legacy/"`
 - Rust with `cargo`: `repository = "crates-io"` or a named Cargo registry
 - Go with `goreleaser`: `repository = "github"` and `dist_dir = "dist"`
+- TypeScript with `npm`: `repository = "npmjs"` (or a registry URL); `token_env` maps to `NODE_AUTH_TOKEN`
 
 ## `[github]`
 

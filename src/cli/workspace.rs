@@ -3,8 +3,8 @@ use console::style;
 
 use crate::{
     analysis::{
-        discover_cargo_workspace, discover_go_workspace, discover_uv_workspace,
-        extract_dependency_names, read_current_version,
+        discover_cargo_workspace, discover_go_workspace, discover_npm_workspace,
+        discover_uv_workspace, extract_dependency_names, read_current_version,
     },
     cli::Cli,
     config::{Config, Ecosystem},
@@ -138,14 +138,34 @@ fn resolve_workspace_members(
         return (roots, "go workspace (go.work use)".to_string());
     }
 
+    if active_ecosystem == Ecosystem::TypeScript
+        && let Some(roots) = discover_npm_workspace(repo_root)
+    {
+        return (
+            roots,
+            "npm workspaces (package.json workspaces)".to_string(),
+        );
+    }
+
     (Vec::new(), "none".to_string())
 }
 
 fn detect_name(repo_root: &std::path::Path, package_root: &str, ecosystem: Ecosystem) -> String {
+    if ecosystem == Ecosystem::TypeScript {
+        return crate::npm::project_name(repo_root, package_root).unwrap_or_else(|| {
+            package_root
+                .rsplit('/')
+                .next()
+                .unwrap_or(package_root)
+                .to_string()
+        });
+    }
+
     let manifest = match ecosystem {
         Ecosystem::Python => ("pyproject.toml", "project", "name"),
         Ecosystem::Rust => ("Cargo.toml", "package", "name"),
         Ecosystem::Go => ("go.mod", "", ""),
+        Ecosystem::TypeScript => unreachable!("handled above"),
     };
 
     if ecosystem == Ecosystem::Go {
@@ -226,6 +246,11 @@ fn detect_version(repo_root: &std::path::Path, package_root: &str, ecosystem: Ec
             path: format!("{}/VERSION", package_root),
             key: None,
             pattern: Some("{version}".to_string()),
+        },
+        Ecosystem::TypeScript => crate::config::VersionFileConfig {
+            path: format!("{}/package.json", package_root),
+            key: Some("version".to_string()),
+            pattern: None,
         },
     };
 

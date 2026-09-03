@@ -16,7 +16,7 @@ This directory contains the full product documentation for ReleaseX and the `rel
 
 ## What ReleaseX Does
 
-`relx` automates releases for Git repositories with first-class support for Python, Rust, and Go ecosystems, all built on the same core release engine.
+`relx` automates releases for Git repositories with first-class support for Python, Rust, Go, and TypeScript ecosystems, all built on the same core release engine.
 
 The release model is intentionally conservative:
 
