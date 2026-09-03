@@ -1176,6 +1176,7 @@ mod tests {
         let body = render_promotion_pr_body(&plan, Some("v0.3.0"));
         assert!(body.contains(PROMOTION_PR_MARKER));
         assert!(body.contains("Proposed release: **v0.3.0**"));
+        assert!(!body.contains("Managed by"));
         let parsed = parse_preview_metadata(&body).expect("parse");
         assert_eq!(
             parsed,
