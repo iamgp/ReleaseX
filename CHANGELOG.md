@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.6.0] - 2026-09-03
+
+### Added
+- support develop-to-main promotion PR previews and tag-only releases (#52)
+
+### Contributors
+Thanks to our contributors for this release:
+- @iamgp (1 commit)
+
 ## [1.5.0] - 2026-08-21
 
 ### Added
