@@ -13,6 +13,7 @@ use crate::{
 };
 
 pub const PROMOTION_PR_MARKER: &str = "<!-- relx-promotion-pr -->";
+pub const FORWARD_PORT_MARKER: &str = "<!-- relx-forward-port -->";
 pub const PREVIEW_METADATA_PREFIX: &str = "<!-- relx-preview";
 pub const DIGEST_LABEL: &str = "Release-digest:";
 
@@ -1088,6 +1089,62 @@ fn create_tag_and_release(
     }
 
     Ok(true)
+}
+
+/// Forward-port production back into development after a hotfix. Creates
+/// (or refreshes, when relx-managed) a production -> development PR so the
+/// hotfix is not lost on the next promotion. No-ops when development
+/// already contains production.
+pub fn execute_forward_port(
+    repo: &GitRepository,
+    config: &Config,
+    dry_run: bool,
+) -> Result<Option<u64>> {
+    if !config.promotion.enabled {
+        bail!("promotion mode is not enabled; set [promotion].enabled = true");
+    }
+    config.validate()?;
+
+    let production = config
+        .promotion
+        .production_branch_for(&config.release.branch);
+    let development = config.promotion.development_branch.clone();
+    let production_sha = repo
+        .rev_parse(&production)
+        .or_else(|_| repo.rev_parse(&format!("origin/{production}")))?;
+    let development_sha = repo
+        .rev_parse(&development)
+        .or_else(|_| repo.rev_parse(&format!("origin/{development}")))?;
+
+    if repo.is_ancestor(&production_sha, &development_sha)? {
+        println!("{development} already contains {production}; nothing to forward-port");
+        return Ok(None);
+    }
+
+    let title = format!("chore: forward-port {production} -> {development}");
+    if dry_run {
+        println!("Would ensure PR `{title}` exists");
+        return Ok(None);
+    }
+
+    let client = github_client(repo, config)?;
+    let body = format!(
+        "{FORWARD_PORT_MARKER}\n## Forward-port\n\nBrings hotfix changes from `{production}@{}` into `{development}` so the next promotion includes them.\n",
+        short_sha(&production_sha)
+    );
+
+    if let Some(open) = client.find_open_pr(&production, &development)? {
+        let details = client.get_pr(open.number)?;
+        if details.has_marker(FORWARD_PORT_MARKER) {
+            client.update_pr(open.number, &title, &body)?;
+        }
+        println!("Forward-port PR ready: #{} {title}", open.number);
+        return Ok(Some(open.number));
+    }
+
+    let created = client.create_pr(&title, &production, &development, &body)?;
+    println!("Forward-port PR ready: #{} {title}", created.number);
+    Ok(Some(created.number))
 }
 
 #[cfg(test)]

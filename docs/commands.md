@@ -199,6 +199,16 @@ its preview (stale version or notes). On success it creates the annotated
 tag and GitHub Release and emits `release_created`, `version`, and
 `tag_name`.
 
+### `relx release forward-port`
+
+Open a production → development PR to carry hotfixes back to `develop`.
+No-ops when `develop` already contains production.
+
+```bash
+relx release forward-port
+relx release forward-port --dry-run
+```
+
 ## Pre-release kinds
 
 Accepted values for `--pre-release`:

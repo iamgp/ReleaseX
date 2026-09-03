@@ -79,6 +79,7 @@ pub enum ReleaseSubcommand {
     Publish(PublishArgs),
     PreviewPr(PreviewPrArgs),
     Promote(PromoteArgs),
+    ForwardPort(ForwardPortArgs),
 }
 
 #[derive(Debug, Args)]
@@ -158,6 +159,9 @@ pub struct PromoteArgs {
     #[arg(long)]
     pub json: bool,
 }
+
+#[derive(Debug, Args)]
+pub struct ForwardPortArgs {}
 
 #[derive(Debug, Clone, clap::ValueEnum)]
 pub enum PreReleaseKind {

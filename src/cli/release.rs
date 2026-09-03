@@ -463,6 +463,16 @@ pub fn run(cli: &Cli, command: &ReleaseCommand) -> Result<()> {
                 result?;
             }
         }
+        ReleaseSubcommand::ForwardPort(_) => {
+            if cli.dry_run {
+                crate::promotion::execute_forward_port(&repo, &config, true)?;
+            } else {
+                let sp = progress::spinner("Forward-porting production…");
+                let result = crate::promotion::execute_forward_port(&repo, &config, false);
+                sp.finish_and_clear();
+                result?;
+            }
+        }
     }
 
     Ok(())

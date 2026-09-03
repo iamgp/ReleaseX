@@ -252,6 +252,15 @@ relx release promote --pr 42
 relx release promote --dry-run
 ```
 
+#### `relx release forward-port`
+
+Open a production → development PR carrying hotfixes back to `develop`. No-ops when `develop` already contains production. Run after `promote` in the production workflow.
+
+```bash
+relx release forward-port
+relx release forward-port --dry-run
+```
+
 ## GitHub Actions
 
 The recommended workflow uses the `ReleaseX/action` wrapper, which downloads the correct binary for your runner — no Rust or Node runtime needed.
