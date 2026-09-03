@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.7.0] - 2026-09-03
+
+### Added
+- zero-major bumps, current-version, lint, changelog links ([#54](https://github.com/iamgp/ReleaseX/issues/54))
+- typescript ecosystem support ([#56](https://github.com/iamgp/ReleaseX/issues/56))
+
+### Fixed
+- tag current version for first release without tags ([#57](https://github.com/iamgp/ReleaseX/issues/57))
+
+### Contributors
+Thanks to our contributors for this release:
+- @iamgp (3 commits)
+
+---
+Full Changelog: https://github.com/iamgp/ReleaseX/compare/v1.6.0...v1.7.0
+
 ## [1.6.0] - 2026-09-03
 
 ### Added
