@@ -135,7 +135,7 @@ pub struct PublishArgs {
 #[derive(Debug, Args)]
 pub struct PreviewPrArgs {
     /// Existing promotion PR number. When omitted, relx finds or creates the
-    /// development -> production PR.
+    /// development → production PR.
     #[arg(long)]
     pub pr: Option<u64>,
     /// Promotion head branch (defaults to [promotion].development_branch).
