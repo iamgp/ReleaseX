@@ -1776,7 +1776,8 @@ impl GitHubClient {
         &self,
         head_branch: &str,
         base_branch: &str,
-    ) -> Result<Option<PullRequest>> {        let url = format!(
+    ) -> Result<Option<PullRequest>> {
+        let url = format!(
             "{}/repos/{}/{}/pulls?state=open&head={}:{}&base={}",
             self.api_base,
             self.repo.owner,

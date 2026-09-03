@@ -159,8 +159,7 @@ pub fn plan_from_range(
     let (current_version, baseline_tag) = resolve_active_baseline(repo, config)?;
     let next_version = bump.apply(&current_version);
     let changelog = PendingChangelog::from_commits(config, &conventional);
-    let date =
-        head_commit_date(repo, head_sha).unwrap_or_else(|| "1970-01-01".to_string());
+    let date = head_commit_date(repo, head_sha).unwrap_or_else(|| "1970-01-01".to_string());
     let version_label = next_version
         .as_ref()
         .map(ToString::to_string)
@@ -223,11 +222,7 @@ pub fn short_sha(sha: &str) -> String {
     sha.chars().take(7).collect()
 }
 
-pub fn render_preview_comment(
-    marker: &str,
-    plan: &PromotionPlan,
-    tag_name: &str,
-) -> String {
+pub fn render_preview_comment(marker: &str, plan: &PromotionPlan, tag_name: &str) -> String {
     let mut body = String::new();
     body.push_str(marker);
     body.push('\n');
@@ -326,7 +321,10 @@ pub fn render_promotion_pr_title(plan: &PromotionPlan) -> String {
             "chore(promote): {} -> {} ({})",
             plan.head_branch, plan.base_branch, tag
         ),
-        None => format!("chore(promote): {} -> {}", plan.head_branch, plan.base_branch),
+        None => format!(
+            "chore(promote): {} -> {}",
+            plan.head_branch, plan.base_branch
+        ),
     }
 }
 
@@ -340,8 +338,7 @@ pub fn emit_github_output(key: &str, value: &str) -> Result<()> {
         } else {
             let _ = writeln!(existing, "{key}={value}");
         }
-        std::fs::write(&path, existing)
-            .with_context(|| format!("failed to append to {path}"))?;
+        std::fs::write(&path, existing).with_context(|| format!("failed to append to {path}"))?;
     }
     Ok(())
 }
@@ -398,7 +395,9 @@ fn ensure_sha_available(repo: &GitRepository, sha: &str) -> Result<()> {
     let path = repo.path();
     let fetch = crate::git::run_git(path, ["fetch", "origin", sha]);
     if fetch.is_err() {
-        bail!("reference `{sha}` is not available locally; fetch the PR head and base before running preview");
+        bail!(
+            "reference `{sha}` is not available locally; fetch the PR head and base before running preview"
+        );
     }
     Ok(())
 }
@@ -557,7 +556,14 @@ pub fn execute_preview(
     ensure_sha_available(repo, &head_sha)?;
     ensure_sha_available(repo, &base_sha)?;
 
-    let mut plan = plan_from_range(repo, config, &head_branch, &base_branch, &head_sha, &base_sha)?;
+    let mut plan = plan_from_range(
+        repo,
+        config,
+        &head_branch,
+        &base_branch,
+        &head_sha,
+        &base_sha,
+    )?;
     let marker = config.promotion.preview_marker.clone();
     let tag_name = plan.tag_name.clone().unwrap_or_default();
     let comment = render_preview_comment(&marker, &plan, &tag_name);
@@ -643,7 +649,10 @@ pub fn execute_promote(
     };
 
     if !details.merged {
-        bail!("PR #{} is not merged; promote runs after the promotion PR is merged", details.number);
+        bail!(
+            "PR #{} is not merged; promote runs after the promotion PR is merged",
+            details.number
+        );
     }
     if details.base.ref_name != production {
         bail!(
@@ -871,10 +880,7 @@ mod tests {
             tag_name: Some("v0.3.0".to_string()),
             bump: BumpLevel::Minor,
             changelog: PendingChangelog {
-                sections: BTreeMap::from([(
-                    "Added".to_string(),
-                    vec!["add search".to_string()],
-                )]),
+                sections: BTreeMap::from([("Added".to_string(), vec!["add search".to_string()])]),
                 contributors: Vec::new(),
             },
             release_notes: "notes".to_string(),

@@ -209,11 +209,7 @@ impl GitRepository {
     /// Commits reachable from `head_ref` that are not reachable from `base_ref`,
     /// ordered oldest-first. This is the `base..head` range used to model what a
     /// promotion PR would introduce onto the production branch.
-    pub fn commits_in_range(
-        &self,
-        base_ref: &str,
-        head_ref: &str,
-    ) -> Result<Vec<CommitSummary>> {
+    pub fn commits_in_range(&self, base_ref: &str, head_ref: &str) -> Result<Vec<CommitSummary>> {
         let head = self
             .inner
             .revparse_single(head_ref)
