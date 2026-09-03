@@ -8,7 +8,7 @@ use crate::{
     config::{Config, Ecosystem},
     git::GitRepository,
     github, progress,
-    promotion::{FinalizeOptions, PreviewOptions},
+    promotion::{PreviewOptions, ReleaseOptions},
     publish,
     version::{BumpLevel, Suffix, Version},
 };
@@ -449,16 +449,16 @@ pub fn run(cli: &Cli, command: &ReleaseCommand) -> Result<()> {
                 result?;
             }
         }
-        ReleaseSubcommand::Finalize(args) => {
-            let options = FinalizeOptions {
+        ReleaseSubcommand::Release(args) => {
+            let options = ReleaseOptions {
                 pr_number: args.pr,
                 json: args.json,
             };
             if cli.dry_run {
-                crate::promotion::execute_finalize(&repo, &config, &options, true)?;
+                crate::promotion::execute_release(&repo, &config, &options, true)?;
             } else {
-                let sp = progress::spinner("Finalizing release…");
-                let result = crate::promotion::execute_finalize(&repo, &config, &options, false);
+                let sp = progress::spinner("Cutting release…");
+                let result = crate::promotion::execute_release(&repo, &config, &options, false);
                 sp.finish_and_clear();
                 result?;
             }

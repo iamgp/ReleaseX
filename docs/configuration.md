@@ -301,7 +301,7 @@ release_branch_prefix = "relx/promote"
 preview_marker = "<!-- relx-release-preview -->"
 ```
 
-- `enabled`: turn on `relx release preview-pr` / `relx release finalize`
+- `enabled`: turn on `relx release preview-pr` / `relx release release`
 - `development_branch`: long-lived branch promoted to production
 - `production_branch`: production branch; falls back to `[release].branch`
   when empty
@@ -322,7 +322,7 @@ Two preview paths:
 - **Versioned** — with `[[version_files]]`, preview generates a
   `relx/promote/*` branch from the promotion head with the version bump and
   changelog entry, opening a single PR to production that carries code plus
-  versioning. `finalize` additionally asserts the merged version files equal
+  versioning. `release` additionally asserts the merged version files equal
   the previewed version.
 - **Tag-only** — without `[[version_files]]`, no branch or file change is
   made; the `develop → main` PR itself carries the preview in its
@@ -334,5 +334,5 @@ Workflow sketch:
    Commits absent from the production baseline and publishes the preview on
    the promotion PR.
 2. Reviewers approve the PR with the exact version and notes visible.
-3. After merge, `relx release finalize --pr <number>` verifies the preview
+3. After merge, `relx release release --pr <number>` verifies the preview
    is still fresh and creates the annotated tag plus GitHub Release.

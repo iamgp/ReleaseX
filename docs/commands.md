@@ -183,17 +183,17 @@ Machine-readable outputs: `pr_number`, `version`, `tag_name`,
 No release branch, version commit, changelog-file edit, label, or tag is
 created by preview mode.
 
-### `relx release finalize`
+### `relx release release`
 
-Tag and release a merged promotion PR. Requires `[promotion] enabled = true`.
+Cut the release for a merged promotion PR. Requires `[promotion] enabled = true`.
 
 ```bash
-relx release finalize --pr 42
-relx release finalize --dry-run
-relx release finalize --json
+relx release release --pr 42
+relx release release --dry-run
+relx release release --json
 ```
 
-`finalize` verifies the PR was merged, re-derives the version from the
+`release` verifies the PR was merged, re-derives the version from the
 merged commits, and fails rather than tagging when the PR changed after
 its preview (stale version or notes). On success it creates the annotated
 tag and GitHub Release and emits `release_created`, `version`, and

@@ -26,7 +26,7 @@ pub struct PreviewOptions {
 }
 
 #[derive(Debug, Clone)]
-pub struct FinalizeOptions {
+pub struct ReleaseOptions {
     pub pr_number: Option<u64>,
     pub json: bool,
 }
@@ -325,7 +325,7 @@ pub fn render_promotion_pr_body(plan: &PromotionPlan, tag_name: Option<&str>) ->
 }
 
 /// Hidden machine-readable preview state embedded in relx-managed PR bodies.
-/// This is the freshness anchor `finalize` verifies; relx-managed PRs carry
+/// This is the freshness anchor `release` verifies; relx-managed PRs carry
 /// the same information visibly above, so no sticky comment is needed.
 pub fn render_preview_metadata(
     version: &str,
@@ -372,11 +372,11 @@ pub fn parse_preview_metadata(body: &str) -> Option<ParsedPreview> {
 pub fn render_promotion_pr_title(plan: &PromotionPlan) -> String {
     match &plan.tag_name {
         Some(tag) => format!(
-            "chore(finalize): {} → {} ({})",
+            "chore(release): {} → {} ({})",
             plan.head_branch, plan.base_branch, tag
         ),
         None => format!(
-            "chore(finalize): {} → {}",
+            "chore(release): {} → {}",
             plan.head_branch, plan.base_branch
         ),
     }
@@ -821,7 +821,7 @@ pub fn execute_versioned_preview(
         // commit itself never contributes to a future bump or changelog and
         // promote-time recomputation matches the preview exactly.
         let commit_message = format!(
-            "relx finalize {} → {} ({})",
+            "relx release {} → {} ({})",
             plan.head_branch,
             plan.base_branch,
             plan.tag_name.as_deref().unwrap_or("no release")
@@ -859,10 +859,10 @@ pub fn execute_versioned_preview(
     Ok(plan.clone())
 }
 
-pub fn execute_finalize(
+pub fn execute_release(
     repo: &GitRepository,
     config: &Config,
-    options: &FinalizeOptions,
+    options: &ReleaseOptions,
     dry_run: bool,
 ) -> Result<()> {
     if !config.promotion.enabled {
@@ -993,7 +993,7 @@ pub fn execute_finalize(
         println!("Would tag {current_tag} at {}", short_sha(&merge_sha));
         println!("Would create or update GitHub Release {current_tag}");
         println!("{}", current.release_notes);
-        emit_finalize_outputs(false, &current_tag, &current_tag, options.json)?;
+        emit_release_outputs(false, &current_tag, &current_tag, options.json)?;
         return Ok(());
     }
 
@@ -1004,11 +1004,11 @@ pub fn execute_finalize(
         .as_ref()
         .map(ToString::to_string)
         .unwrap_or_default();
-    emit_finalize_outputs(release_created, &version, &current_tag, options.json)?;
+    emit_release_outputs(release_created, &version, &current_tag, options.json)?;
     Ok(())
 }
 
-fn emit_finalize_outputs(
+fn emit_release_outputs(
     release_created: bool,
     version: &str,
     tag_name: &str,

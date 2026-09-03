@@ -78,8 +78,8 @@ pub enum ReleaseSubcommand {
     Tag(PreReleaseArgs),
     Publish(PublishArgs),
     PreviewPr(PreviewPrArgs),
-    #[command(alias = "promote")]
-    Finalize(FinalizeArgs),
+    #[command(alias = "finalize", alias = "promote")]
+    Release(ReleaseArgs),
     ForwardPort(ForwardPortArgs),
 }
 
@@ -151,7 +151,7 @@ pub struct PreviewPrArgs {
 }
 
 #[derive(Debug, Args)]
-pub struct FinalizeArgs {
+pub struct ReleaseArgs {
     /// Merged promotion PR number. When omitted, relx looks up the most
     /// recently merged development → production PR.
     #[arg(long)]

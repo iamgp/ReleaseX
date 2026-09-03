@@ -243,18 +243,18 @@ relx release preview-pr --head hotfix/login-loop --pr 42
 relx release preview-pr --dry-run
 ```
 
-#### `relx release finalize`
+#### `relx release release`
 
-Tag and release a merged promotion PR. Requires `[promotion] enabled = true` in config. Fails rather than tagging when the PR changed after its preview. Emits `release_created`, `version`, and `tag_name` outputs.
+Cut the release for a merged promotion PR. Requires `[promotion] enabled = true` in config. Fails rather than tagging when the PR changed after its preview. Emits `release_created`, `version`, and `tag_name` outputs.
 
 ```bash
-relx release finalize --pr 42
-relx release finalize --dry-run
+relx release release --pr 42
+relx release release --dry-run
 ```
 
 #### `relx release forward-port`
 
-Open a production → development PR carrying hotfixes back to `develop`. No-ops when `develop` already contains production. Run after `finalize` in the production workflow.
+Open a production → development PR carrying hotfixes back to `develop`. No-ops when `develop` already contains production. Run after `release` in the production workflow.
 
 ```bash
 relx release forward-port
