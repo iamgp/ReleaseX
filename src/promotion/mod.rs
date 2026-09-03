@@ -319,7 +319,7 @@ pub fn render_promotion_pr_body(plan: &PromotionPlan, tag_name: Option<&str>) ->
         None => body.push_str("Proposed release: none pending\n\n"),
     }
     body.push_str(&plan.release_notes);
-    body.push_str("\n\n---\nManaged by `relx release preview-pr`.\n");
+    body.push('\n');
     body
 }
 
