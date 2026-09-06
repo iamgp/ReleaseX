@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- independent per-package release baselines, `--package` selection, and a committed schema 2 release manifest ([#59](https://github.com/iamgp/ReleaseX/issues/59))
+
 ## [1.7.0] - 2026-09-03
 
 ### Added

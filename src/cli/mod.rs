@@ -64,6 +64,8 @@ pub struct StatusArgs {
     pub channel: bool,
     #[arg(long, value_name = "TAG")]
     pub since: Option<String>,
+    #[arg(long = "package", value_name = "NAME")]
+    pub package: Vec<String>,
 }
 
 #[derive(Debug, Args)]
@@ -85,12 +87,15 @@ pub enum ReleaseSubcommand {
     #[command(alias = "finalize", alias = "promote")]
     Release(ReleaseArgs),
     ForwardPort(ForwardPortArgs),
+    VerifyPlan(VerifyPlanArgs),
 }
 
 #[derive(Debug, Args)]
 pub struct PlanArgs {
     #[arg(long)]
     pub json: bool,
+    #[arg(long = "package", value_name = "NAME")]
+    pub package: Vec<String>,
 }
 
 #[derive(Debug, Args)]
@@ -144,7 +149,13 @@ pub struct PreReleaseArgs {
     /// Strip the pre-release suffix to produce a final release
     #[arg(long, conflicts_with = "pre_release")]
     pub finalize: bool,
+
+    #[arg(long = "package", value_name = "NAME")]
+    pub package: Vec<String>,
 }
+
+#[derive(Debug, Args)]
+pub struct VerifyPlanArgs {}
 
 #[derive(Debug, Args)]
 pub struct PublishArgs {

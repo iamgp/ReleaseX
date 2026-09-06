@@ -16,6 +16,18 @@ fn lookup<'a>(document: &'a serde_json::Value, key: &str) -> Option<&'a serde_js
     Some(current)
 }
 
+pub fn read_key_from_contents(contents: &str, key: &str) -> Result<Option<String>> {
+    let document: serde_json::Value =
+        serde_json::from_str(contents).context("failed to parse json")?;
+    match lookup(&document, key) {
+        Some(serde_json::Value::String(value)) => Ok(Some(value.clone())),
+        Some(other) => Ok(Some(
+            other.as_str().unwrap_or(&other.to_string()).to_string(),
+        )),
+        None => Ok(None),
+    }
+}
+
 pub fn read_key(path: &std::path::Path, key: &str) -> Result<Option<String>> {
     let document = read_document(path)?;
     match lookup(&document, key) {

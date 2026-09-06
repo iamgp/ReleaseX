@@ -142,6 +142,11 @@ commit_email = "41898282+github-actions[bot]@users.noreply.github.com"
 enabled = false                         # set to true for multi-package repos
 packages = []                           # list of package directories
 release_mode = "unified"                # "unified", "release_set", or "per_package"
+# first_release_packages = ["brand-new"]
+# [[monorepo.legacy_releases]]
+# tag = "v0.15.1"
+# commit = "df1788c2dbaa71121b06a8c58d3c7975767db55b"
+# packages = ["phlo"]
 ```
 
 ## CLI Reference
@@ -399,7 +404,7 @@ release_mode = "per_package"  # or "unified" / "release_set"
 - **`release_set`** — one PR for whatever changed, short release titles, and publish only the packages that changed
 - **`per_package`** — one release PR per changed package
 
-Each package directory should contain its own `pyproject.toml`. relx detects which packages have changed and creates version bumps independently.
+Each package directory should contain its own `pyproject.toml`. In `release_set` and `per_package` modes, relx analyses each package from **that package's last release** (`<package>/v<version>` tags) so an unrelated package tag cannot hide another package's unreleased commits. Repeatable `--package` selects which packages to prepare. See [docs/workspaces.md](docs/workspaces.md) for baselines, the committed release manifest, and legacy shared-tag migration.
 
 When monorepo mode is enabled, the `[[version_files]]` requirement at the top level is relaxed — version files are resolved per package instead.
 

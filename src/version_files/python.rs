@@ -5,8 +5,11 @@ use anyhow::{Context, Result, bail};
 pub fn read_pattern(path: &Path, pattern: &str) -> Result<Option<String>> {
     let contents =
         fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
-    let (prefix, suffix) = pattern_parts(pattern)?;
+    read_pattern_from_contents(&contents, pattern)
+}
 
+pub fn read_pattern_from_contents(contents: &str, pattern: &str) -> Result<Option<String>> {
+    let (prefix, suffix) = pattern_parts(pattern)?;
     Ok(contents
         .lines()
         .find_map(|line| extract_version(line, prefix, suffix)))

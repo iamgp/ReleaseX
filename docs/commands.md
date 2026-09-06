@@ -36,6 +36,7 @@ relx status
 relx status --short
 relx status --json
 relx status --since=v1.2.0
+relx status --package core --package cli
 relx status --channel
 ```
 
@@ -123,6 +124,35 @@ relx release --snapshot
 
 Runs local release validation and writes outputs under `.relx/snapshot/`.
 
+### `relx release plan`
+
+Print the versioned release manifest without mutating the tree.
+
+```bash
+relx release plan
+relx release plan --json
+relx release plan --package package-a --package package-b
+```
+
+`--json` emits schema 2 of `.relx/release-manifest.json`, including per-package baselines, intended tags, and required dependency changes.
+
+### `relx release prepare`
+
+Apply the planned version bumps, changelog, dependency metadata, and release manifest to the working tree. `--check` runs the same pipeline in an isolated clone and does not change the current checkout.
+
+```bash
+relx release prepare --package package-a
+relx release prepare --check
+```
+
+### `relx release verify-plan`
+
+Validate that the current tree matches the committed release manifest. This is the squash/merge-queue check: commit titles and merge SHAs may differ; selected package contents and declared bookkeeping must still match.
+
+```bash
+relx release verify-plan
+```
+
 ### `relx release pr`
 
 Create or update the release PR.
@@ -134,6 +164,7 @@ relx release pr --pre-release beta
 relx release pr --channel beta
 relx release pr --finalize
 relx release pr --next-version 0.14.0
+relx release pr --package phlo-polaris
 ```
 
 `--next-version <VERSION>` is an explicit one-off stable recovery version. It must
@@ -160,7 +191,10 @@ relx release tag
 relx release tag --dry-run
 relx release tag --channel beta
 relx release tag --finalize
+relx release tag --package package-a
 ```
+
+Independent `release_set` / `per_package` tags use `<package>/v<version>` from the reviewed manifest. `relx release tag` fails if that manifest is missing, stale, or does not match the merged tree.
 
 ### `relx release publish`
 

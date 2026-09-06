@@ -5,10 +5,13 @@ use anyhow::{Context, Result, bail};
 pub fn read_key(path: &Path, key: &str) -> Result<Option<String>> {
     let contents =
         fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
+    read_key_from_contents(&contents, key)
+}
+
+pub fn read_key_from_contents(contents: &str, key: &str) -> Result<Option<String>> {
     let value = contents
         .parse::<toml::Table>()
-        .with_context(|| format!("failed to parse {}", path.display()))?;
-
+        .context("failed to parse toml")?;
     Ok(get_table_value(&value, key).map(|value| value.to_string()))
 }
 
