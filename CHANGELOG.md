@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.8.0] - 2026-09-06
+
+### Added
+- per-package release baselines and persisted selective plans ([#60](https://github.com/iamgp/ReleaseX/issues/60))
+
+### Contributors
+Thanks to our contributors for this release:
+- @iamgp (1 commit)
+
+---
+Full Changelog: https://github.com/iamgp/ReleaseX/compare/v1.7.0...v1.8.0
+
 ## Unreleased
 
 ### Added
