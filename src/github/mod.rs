@@ -2305,6 +2305,13 @@ mod tests {
                 name: "relx".into()
             })
         );
+        assert_eq!(
+            parse_remote_url("https://x-access-token:secret@github.com/acme/relx.git"),
+            Some(super::RepoRef {
+                owner: "acme".into(),
+                name: "relx".into()
+            })
+        );
     }
 
     #[test]
