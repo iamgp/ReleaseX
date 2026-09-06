@@ -1507,11 +1507,11 @@ fn owning_package<'a>(path: &str, definitions: &'a [PackageDefinition]) -> Optio
         if definition.root == "." {
             continue;
         }
-        if path == definition.root || path.starts_with(&format!("{}/", definition.root)) {
-            if definition.root.len() > best_len {
-                best = Some(definition.root.as_str());
-                best_len = definition.root.len();
-            }
+        if (path == definition.root || path.starts_with(&format!("{}/", definition.root)))
+            && definition.root.len() > best_len
+        {
+            best = Some(definition.root.as_str());
+            best_len = definition.root.len();
         }
     }
     if best.is_some() {
