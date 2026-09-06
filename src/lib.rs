@@ -1,4 +1,5 @@
 pub mod analysis;
+pub mod baseline;
 pub mod changelog;
 pub mod channels;
 pub mod config;
@@ -7,6 +8,7 @@ pub mod cratesio;
 pub mod ecosystem;
 pub mod git;
 pub mod github;
+pub mod manifest;
 pub mod npm;
 pub mod prerelease;
 pub mod promotion;

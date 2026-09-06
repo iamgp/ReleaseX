@@ -22,13 +22,27 @@ pub fn run(cli: &Cli, args: &StatusArgs) -> Result<()> {
     let mut analysis = if cli.dry_run {
         match &args.since {
             Some(tag) => analysis::analyze_since(&repo, &config, tag)?,
-            None => analysis::analyze(&repo, &config)?,
+            None => analysis::analyze_with(
+                &repo,
+                &config,
+                &analysis::AnalyzeOptions {
+                    packages: args.package.clone(),
+                    prerelease_kind: None,
+                },
+            )?,
         }
     } else {
         let sp = progress::spinner("Analyzing commits…");
         let result = match &args.since {
             Some(tag) => analysis::analyze_since(&repo, &config, tag),
-            None => analysis::analyze(&repo, &config),
+            None => analysis::analyze_with(
+                &repo,
+                &config,
+                &analysis::AnalyzeOptions {
+                    packages: args.package.clone(),
+                    prerelease_kind: None,
+                },
+            ),
         };
         sp.finish_and_clear();
         result?

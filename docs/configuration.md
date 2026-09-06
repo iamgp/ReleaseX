@@ -114,6 +114,7 @@ version_range = ">=1.0.0,<2.0.0"
 - `changelog_file`: changelog path to prepend release notes into
 - `pr_title`: release PR title template, with `{version}` placeholder
 - `release_name`: GitHub Release title template, with `{tag_name}` and `{version}` placeholders
+- `plan_file`: path of the committed release manifest (default `.relx/release-manifest.json`)
 
 ### Workspace dependency rules and transformers
 
@@ -222,12 +223,16 @@ Examples:
 - `enabled`: treat the repository as multi-package
 - `packages`: explicit package roots
 - `release_mode`: `unified`, `release_set`, or `per_package`
+- `first_release_packages`: package names that have never been released (required once independent package tags or `legacy_releases` exist)
+- `[[monorepo.legacy_releases]]`: map a historical shared tag to the packages it actually published (`tag`, optional `commit`, `packages`)
+
+`release_set` and `per_package` use per-package baselines and `<package>/v<version>` tags. PR grouping does not imply a shared version or shared release history. See [Monorepos and Workspaces](./workspaces.md) for the manifest format and Phlo-style migration example.
 
 If `packages` is empty and a `uv` workspace is present, `relx` can auto-discover members.
 
 ## `[workspace]`
 
-- `cascade_bumps`: if true, packages depending on bumped workspace packages receive patch bumps
+- `cascade_bumps`: if true, dependents of an incompatible selected release receive a visible patch bump; compatible declared ranges are left unchanged
 
 ## `[ci]`
 

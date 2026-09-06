@@ -7,6 +7,7 @@ use std::{
 use anyhow::{Context, Result, bail};
 
 use crate::{
+    baseline::{self, PackageBaseline},
     changelog::PendingChangelog,
     config::{Config, Ecosystem, VersionFileConfig},
     conventional_commits::ConventionalCommit,
@@ -16,6 +17,22 @@ use crate::{
     version::{BumpLevel, Version},
     version_files,
 };
+
+#[derive(Debug, Clone, Default)]
+pub struct AnalyzeOptions {
+    pub packages: Vec<String>,
+    pub prerelease_kind: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RequiredDependencyChange {
+    pub package: String,
+    pub path: String,
+    pub dependency: String,
+    pub declared_range: String,
+    pub required_version: String,
+    pub reason: String,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReleaseAnalysis {
@@ -56,6 +73,9 @@ pub struct PackageReleaseAnalysis {
     pub changed_paths: Vec<String>,
     pub selected: bool,
     pub selection_reason: String,
+    pub baseline: PackageBaseline,
+    pub release_tag: String,
+    pub required_dependency_changes: Vec<RequiredDependencyChange>,
 }
 
 #[derive(Debug, Clone)]
@@ -66,12 +86,20 @@ struct PackageDefinition {
 }
 
 pub fn analyze(repo: &GitRepository, config: &Config) -> Result<ReleaseAnalysis> {
+    analyze_with(repo, config, &AnalyzeOptions::default())
+}
+
+pub fn analyze_with(
+    repo: &GitRepository,
+    config: &Config,
+    options: &AnalyzeOptions,
+) -> Result<ReleaseAnalysis> {
     config.validate()?;
 
-    let commits = repo.commits_since_latest_tag()?;
     if config.monorepo.is_multi_package() {
-        analyze_monorepo(repo, config, commits)
+        analyze_monorepo(repo, config, options, None)
     } else {
+        let commits = repo.commits_since_latest_tag()?;
         analyze_single_package(repo, config, commits)
     }
 }
@@ -85,7 +113,7 @@ pub fn analyze_since(
 
     let commits = repo.commits_since_tag(since_tag)?;
     if config.monorepo.is_multi_package() {
-        analyze_monorepo(repo, config, commits)
+        analyze_monorepo(repo, config, &AnalyzeOptions::default(), Some(commits))
     } else {
         analyze_single_package(repo, config, commits)
     }
@@ -128,8 +156,8 @@ fn analyze_single_package(
             packages: vec![PackageReleaseAnalysis {
                 name: package_name_from_repo_root(repo.path()),
                 root: ".".to_string(),
-                current_version,
-                next_version,
+                current_version: current_version.clone(),
+                next_version: next_version.clone(),
                 bump,
                 changelog,
                 version_files: config.version_files.clone(),
@@ -137,6 +165,13 @@ fn analyze_single_package(
                 changed_paths: Vec::new(),
                 selected: true,
                 selection_reason: "single-package repository".to_string(),
+                baseline: PackageBaseline::default(),
+                release_tag: format!(
+                    "{}{}",
+                    config.release.tag_prefix,
+                    next_version.as_ref().unwrap_or(&current_version)
+                ),
+                required_dependency_changes: Vec::new(),
             }],
         },
     })
@@ -145,16 +180,38 @@ fn analyze_single_package(
 fn analyze_monorepo(
     repo: &GitRepository,
     config: &Config,
-    commits: Vec<CommitSummary>,
+    options: &AnalyzeOptions,
+    shared_commits: Option<Vec<CommitSummary>>,
 ) -> Result<ReleaseAnalysis> {
     let (definitions, discovery_source) = discover_packages(repo.path(), config)?;
     if definitions.is_empty() {
         bail!("monorepo.enabled is true but no packages were discovered");
     }
+    let known_names = definitions
+        .iter()
+        .map(|definition| definition.name.clone())
+        .collect::<Vec<_>>();
+    let exclusive = baseline::uses_independent_package_identity(config);
 
     let mut packages = Vec::new();
-    for definition in definitions {
-        let package_commits = commits_for_package(&commits, &definition.root);
+    for definition in &definitions {
+        let baseline = baseline::resolve_package_baseline(
+            repo,
+            config,
+            &definition.name,
+            &definition.version_files,
+            options.prerelease_kind.as_deref(),
+            &known_names,
+        )?;
+        let commits = match &shared_commits {
+            Some(commits) => commits.clone(),
+            None => repo.commits_since_commit(baseline.commit.as_deref())?,
+        };
+        let package_commits = if exclusive {
+            commits_for_package_exclusive(&commits, &definition.root, &definitions, config)
+        } else {
+            commits_for_package(&commits, &definition.root)
+        };
         let conventional_commits = package_commits
             .iter()
             .filter_map(|commit| ConventionalCommit::parse_message(&commit.message).ok())
@@ -167,6 +224,12 @@ fn analyze_monorepo(
         let bump = BumpLevel::from_commits(&conventional_commits);
         let next_version = bump.apply(&current_version);
         let selected = !changed_paths.is_empty() && next_version.is_some();
+        let intended = next_version.as_ref().unwrap_or(&current_version);
+        let release_tag = if exclusive {
+            baseline::package_release_tag(&definition.name, intended)
+        } else {
+            format!("{}{intended}", config.release.tag_prefix)
+        };
 
         let mut changelog = PendingChangelog::from_commits(config, &conventional_commits);
         if config.changelog.contributors {
@@ -176,26 +239,44 @@ fn analyze_monorepo(
             changelog.add_contributors(&display_commits, &known_authors, &config.changelog);
         }
 
+        let selection_reason = if selected {
+            format!(
+                "package files changed since {} and produced a release bump",
+                baseline
+                    .reference
+                    .as_deref()
+                    .unwrap_or("the start of history")
+            )
+        } else {
+            format!(
+                "no releasable package changes detected since {}",
+                baseline
+                    .reference
+                    .as_deref()
+                    .unwrap_or("the start of history")
+            )
+        };
+
         packages.push(PackageReleaseAnalysis {
-            name: definition.name,
+            name: definition.name.clone(),
             root: definition.root.clone(),
             current_version,
             next_version,
             bump,
             changelog,
-            version_files: definition.version_files,
+            version_files: definition.version_files.clone(),
             commits: package_commits,
             changed_paths,
             selected,
-            selection_reason: if selected {
-                "package files changed since the latest tag and produced a release bump".to_string()
-            } else {
-                "no releasable package changes detected since the latest tag".to_string()
-            },
+            selection_reason,
+            baseline,
+            release_tag,
+            required_dependency_changes: Vec::new(),
         });
     }
 
-    apply_cascade_bumps(repo.path(), config, &mut packages);
+    apply_package_filter(&mut packages, &options.packages)?;
+    apply_dependency_policy(repo.path(), config, &mut packages, &options.packages)?;
 
     let selected_packages = packages.iter().filter(|package| package.selected);
     let aggregate_current_version = selected_packages
@@ -215,6 +296,13 @@ fn analyze_monorepo(
         .fold(BumpLevel::None, |level, package| level.max(package.bump));
     let aggregate_next_version = aggregate_bump.apply(&aggregate_current_version);
     let aggregate_changelog = aggregate_changelog(&packages);
+    let commits = shared_commits.unwrap_or_else(|| {
+        packages
+            .iter()
+            .filter(|package| package.selected)
+            .flat_map(|package| package.commits.iter().cloned())
+            .collect()
+    });
 
     Ok(ReleaseAnalysis {
         current_version: aggregate_current_version,
@@ -655,10 +743,15 @@ pub fn apply_cascade_bumps(
         return;
     }
 
-    let bumped_names: Vec<String> = packages
+    let bumped_names: Vec<(String, Version)> = packages
         .iter()
         .filter(|p| p.selected && p.next_version.is_some())
-        .map(|p| p.name.clone())
+        .map(|p| {
+            (
+                p.name.clone(),
+                p.next_version.clone().expect("next version"),
+            )
+        })
         .collect();
 
     if bumped_names.is_empty() {
@@ -670,18 +763,345 @@ pub fn apply_cascade_bumps(
             continue;
         }
 
-        let deps = extract_dependency_names(repo_root, &package.root);
-        let depends_on_bumped = deps.iter().any(|dep| bumped_names.contains(dep));
+        let deps = extract_declared_dependencies(repo_root, &package.root);
+        let mut matched: Option<(String, Option<String>, Version)> = None;
+        for dep in &deps {
+            if let Some((_, version)) = bumped_names.iter().find(|(name, _)| name == &dep.name) {
+                matched = Some((dep.name.clone(), dep.range.clone(), version.clone()));
+                break;
+            }
+        }
+        let Some((dep_name, range, version)) = matched else {
+            continue;
+        };
 
-        if depends_on_bumped {
-            let next = BumpLevel::Patch.apply(&package.current_version);
-            package.next_version = next;
-            package.bump = BumpLevel::Patch;
-            package.selected = true;
-            package.selection_reason =
-                "cascade bump: depends on a package with a version bump".to_string();
+        if let Some(declared) = range.as_deref()
+            && version_satisfies_range(&version, declared)
+        {
+            continue;
+        }
+
+        let next = BumpLevel::Patch.apply(&package.current_version);
+        package.next_version = next;
+        package.bump = BumpLevel::Patch;
+        package.selected = true;
+        package.release_tag = if baseline::uses_independent_package_identity(config) {
+            baseline::package_release_tag(
+                &package.name,
+                package
+                    .next_version
+                    .as_ref()
+                    .unwrap_or(&package.current_version),
+            )
+        } else {
+            package.release_tag.clone()
+        };
+        package.selection_reason = if range.is_some() {
+            format!(
+                "cascade bump: published dependency on {dep_name} is outside the declared range"
+            )
+        } else {
+            "cascade bump: depends on a package with a version bump".to_string()
+        };
+    }
+}
+
+fn apply_package_filter(
+    packages: &mut [PackageReleaseAnalysis],
+    requested: &[String],
+) -> Result<()> {
+    if requested.is_empty() {
+        return Ok(());
+    }
+    let known = packages
+        .iter()
+        .map(|package| package.name.clone())
+        .collect::<BTreeSet<_>>();
+    for name in requested {
+        if !known.contains(name) {
+            bail!(
+                "unknown --package `{name}`; known packages: {}",
+                known.iter().cloned().collect::<Vec<_>>().join(", ")
+            );
         }
     }
+    for package in packages.iter_mut() {
+        if !requested.iter().any(|name| name == &package.name) && package.selected {
+            package.selected = false;
+            package.next_version = None;
+            package.bump = BumpLevel::None;
+            package.selection_reason = format!(
+                "excluded by --package filter; unreleased changes remain on {}",
+                package
+                    .baseline
+                    .reference
+                    .as_deref()
+                    .unwrap_or("its own baseline")
+            );
+        }
+    }
+    Ok(())
+}
+
+fn apply_dependency_policy(
+    repo_root: &Path,
+    config: &Config,
+    packages: &mut [PackageReleaseAnalysis],
+    requested: &[String],
+) -> Result<()> {
+    let selected: Vec<(String, Version)> = packages
+        .iter()
+        .filter(|package| package.selected)
+        .filter_map(|package| {
+            package
+                .next_version
+                .clone()
+                .map(|version| (package.name.clone(), version))
+        })
+        .collect();
+
+    let mut required = Vec::new();
+    for package in packages.iter() {
+        let deps = extract_declared_dependencies(repo_root, &package.root);
+        for dep in deps {
+            let Some((_, version)) = selected.iter().find(|(name, _)| name == &dep.name) else {
+                continue;
+            };
+            let Some(range) = dep.range.as_deref() else {
+                continue;
+            };
+            if version_satisfies_range(version, range) {
+                continue;
+            }
+            required.push(RequiredDependencyChange {
+                package: package.name.clone(),
+                path: package.root.clone(),
+                dependency: dep.name.clone(),
+                declared_range: range.to_string(),
+                required_version: version.to_string(),
+                reason: format!(
+                    "selected {} {} is outside declared range {range}; the dependent must publish a metadata change",
+                    dep.name,
+                    version
+                ),
+            });
+        }
+    }
+
+    let mut blocked = Vec::new();
+    for change in required {
+        let Some(package) = packages
+            .iter_mut()
+            .find(|package| package.name == change.package)
+        else {
+            continue;
+        };
+        package.required_dependency_changes.push(change.clone());
+        if package.selected {
+            continue;
+        }
+        if config.workspace.cascade_bumps {
+            let next = BumpLevel::Patch.apply(&package.current_version);
+            package.next_version = next.clone();
+            package.bump = BumpLevel::Patch;
+            package.selected = true;
+            package.selection_reason = change.reason.clone();
+            if baseline::uses_independent_package_identity(config)
+                && let Some(version) = &package.next_version
+            {
+                package.release_tag = baseline::package_release_tag(&package.name, version);
+            }
+            continue;
+        }
+        if !requested.is_empty() && !requested.iter().any(|name| name == &package.name) {
+            blocked.push(change);
+            continue;
+        }
+        blocked.push(change);
+    }
+
+    if !blocked.is_empty() {
+        let details = blocked
+            .iter()
+            .map(|change| {
+                format!(
+                    "`{}` must be selected because {} {} is outside `{}`",
+                    change.package,
+                    change.dependency,
+                    change.required_version,
+                    change.declared_range
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("; ");
+        bail!(
+            "incompatible workspace dependency update requires an explicit package selection: {details}"
+        );
+    }
+
+    if config.workspace.cascade_bumps {
+        apply_cascade_bumps(repo_root, config, packages);
+    }
+    Ok(())
+}
+
+#[derive(Debug, Clone)]
+struct DeclaredDependency {
+    name: String,
+    range: Option<String>,
+}
+
+fn extract_declared_dependencies(repo_root: &Path, package_root: &str) -> Vec<DeclaredDependency> {
+    let ecosystem = ecosystem::detect(&repo_root.join(package_root), None);
+    match ecosystem {
+        Ecosystem::Python => extract_python_declared_dependencies(repo_root, package_root),
+        Ecosystem::Rust => extract_rust_declared_dependencies(repo_root, package_root),
+        Ecosystem::Go => extract_go_declared_dependencies(repo_root, package_root),
+        Ecosystem::TypeScript => extract_typescript_declared_dependencies(repo_root, package_root),
+    }
+}
+
+fn extract_python_declared_dependencies(
+    repo_root: &Path,
+    package_root: &str,
+) -> Vec<DeclaredDependency> {
+    let pyproject_path = repo_root.join(package_root).join("pyproject.toml");
+    let Ok(contents) = fs::read_to_string(pyproject_path) else {
+        return Vec::new();
+    };
+    let Ok(parsed) = contents.parse::<toml::Table>() else {
+        return Vec::new();
+    };
+    let Some(deps) = parsed
+        .get("project")
+        .and_then(|value| value.as_table())
+        .and_then(|table| table.get("dependencies"))
+        .and_then(|value| value.as_array())
+    else {
+        return Vec::new();
+    };
+    deps.iter()
+        .filter_map(|value| value.as_str())
+        .filter_map(split_python_requirement)
+        .map(|(name, range)| DeclaredDependency { name, range })
+        .collect()
+}
+
+fn split_python_requirement(raw: &str) -> Option<(String, Option<String>)> {
+    let base = raw.split(';').next()?.trim();
+    let name_end = base
+        .char_indices()
+        .find_map(|(index, ch)| {
+            matches!(ch, '[' | ' ' | '\t' | '<' | '>' | '=' | '!' | '~' | '@').then_some(index)
+        })
+        .unwrap_or(base.len());
+    let name = base[..name_end].trim().to_string();
+    if name.is_empty() {
+        return None;
+    }
+    let rest = base[name_end..].trim();
+    let rest = rest
+        .strip_prefix('[')
+        .and_then(|value| value.find(']').map(|index| value[index + 1..].trim()))
+        .unwrap_or(rest);
+    let range = if rest.is_empty() || rest.starts_with('@') {
+        None
+    } else {
+        Some(rest.to_string())
+    };
+    Some((name, range))
+}
+
+fn extract_rust_declared_dependencies(
+    repo_root: &Path,
+    package_root: &str,
+) -> Vec<DeclaredDependency> {
+    let cargo_toml_path = repo_root.join(package_root).join("Cargo.toml");
+    let Ok(contents) = fs::read_to_string(cargo_toml_path) else {
+        return Vec::new();
+    };
+    let Ok(parsed) = contents.parse::<toml::Table>() else {
+        return Vec::new();
+    };
+    let mut deps = Vec::new();
+    for section in ["dependencies", "dev-dependencies", "build-dependencies"] {
+        let Some(table) = parsed.get(section).and_then(|value| value.as_table()) else {
+            continue;
+        };
+        for (name, value) in table {
+            let range = match value {
+                toml::Value::String(version) => Some(format!("=={version}")),
+                toml::Value::Table(table) => table
+                    .get("version")
+                    .and_then(|value| value.as_str())
+                    .map(|version| format!("=={version}")),
+                _ => None,
+            };
+            deps.push(DeclaredDependency {
+                name: name.clone(),
+                range,
+            });
+        }
+    }
+    deps
+}
+
+fn extract_go_declared_dependencies(
+    repo_root: &Path,
+    package_root: &str,
+) -> Vec<DeclaredDependency> {
+    extract_go_dependency_names(repo_root, package_root)
+        .into_iter()
+        .map(|name| DeclaredDependency { name, range: None })
+        .collect()
+}
+
+fn extract_typescript_declared_dependencies(
+    repo_root: &Path,
+    package_root: &str,
+) -> Vec<DeclaredDependency> {
+    extract_typescript_dependency_names(repo_root, package_root)
+        .into_iter()
+        .map(|name| DeclaredDependency { name, range: None })
+        .collect()
+}
+
+fn parse_version_bound(raw: &str) -> Option<Version> {
+    let trimmed = raw.trim();
+    if trimmed.parse::<Version>().is_ok() {
+        return trimmed.parse().ok();
+    }
+    let padded = match trimmed.split('.').count() {
+        1 => format!("{trimmed}.0.0"),
+        2 => format!("{trimmed}.0"),
+        _ => trimmed.to_string(),
+    };
+    padded.parse().ok()
+}
+
+fn version_satisfies_range(version: &Version, range: &str) -> bool {
+    range.split(',').all(|raw| {
+        let clause = raw.trim();
+        if let Some(min) = clause.strip_prefix(">=") {
+            return parse_version_bound(min).is_some_and(|bound| version >= &bound);
+        }
+        if let Some(max) = clause.strip_prefix("<=") {
+            return parse_version_bound(max).is_some_and(|bound| version <= &bound);
+        }
+        if let Some(min) = clause.strip_prefix('>') {
+            return parse_version_bound(min).is_some_and(|bound| version > &bound);
+        }
+        if let Some(max) = clause.strip_prefix('<') {
+            return parse_version_bound(max).is_some_and(|bound| version < &bound);
+        }
+        if let Some(exact) = clause.strip_prefix("==") {
+            return parse_version_bound(exact).is_some_and(|bound| version == &bound);
+        }
+        if let Some(exact) = clause.strip_prefix('=') {
+            return parse_version_bound(exact).is_some_and(|bound| version == &bound);
+        }
+        false
+    })
 }
 
 fn load_package_definition(repo_root: &Path, package_root: &str) -> Result<PackageDefinition> {
@@ -749,6 +1169,13 @@ fn scan_for_package_roots(repo_root: &Path, current: &Path, package_roots: &mut 
             package_roots.push(parent.to_string_lossy().replace('\\', "/"));
         }
     }
+}
+
+pub fn detect_package_version_files_for_manifest(
+    repo_root: &Path,
+    package_root: &Path,
+) -> Result<Vec<VersionFileConfig>> {
+    detect_package_version_files(repo_root, package_root)
 }
 
 fn detect_package_version_files(
@@ -1053,6 +1480,47 @@ fn normalize_relative_path(path: &str) -> String {
     } else {
         normalized
     }
+}
+
+fn commits_for_package_exclusive(
+    commits: &[CommitSummary],
+    package_root: &str,
+    definitions: &[PackageDefinition],
+    config: &Config,
+) -> Vec<CommitSummary> {
+    commits
+        .iter()
+        .filter(|commit| {
+            commit.changed_paths.iter().any(|path| {
+                !baseline::is_bookkeeping_path(path, config)
+                    && owning_package(path, definitions).is_some_and(|root| root == package_root)
+            })
+        })
+        .cloned()
+        .collect()
+}
+
+fn owning_package<'a>(path: &str, definitions: &'a [PackageDefinition]) -> Option<&'a str> {
+    let mut best: Option<&str> = None;
+    let mut best_len = 0;
+    for definition in definitions {
+        if definition.root == "." {
+            continue;
+        }
+        if path == definition.root || path.starts_with(&format!("{}/", definition.root)) {
+            if definition.root.len() > best_len {
+                best = Some(definition.root.as_str());
+                best_len = definition.root.len();
+            }
+        }
+    }
+    if best.is_some() {
+        return best;
+    }
+    definitions
+        .iter()
+        .find(|definition| definition.root == ".")
+        .map(|definition| definition.root.as_str())
 }
 
 fn commits_for_package(commits: &[CommitSummary], package_root: &str) -> Vec<CommitSummary> {

@@ -92,16 +92,32 @@ impl GitRepository {
     }
 
     pub fn commits_since_latest_tag(&self) -> Result<Vec<CommitSummary>> {
-        let head = self.inner.head()?.peel_to_commit()?;
         let last_tag_commit = self
             .latest_tag()?
             .and_then(|tag| self.inner.revparse_single(&tag).ok())
-            .and_then(|object| object.peel_to_commit().ok());
+            .and_then(|object| object.peel_to_commit().ok())
+            .map(|commit| commit.id().to_string());
+        self.commits_since_commit(last_tag_commit.as_deref())
+    }
+
+    pub fn commits_since_commit(&self, commit_id: Option<&str>) -> Result<Vec<CommitSummary>> {
+        let head = self.inner.head()?.peel_to_commit()?;
+        let hide = match commit_id {
+            Some(id) => Some(
+                self.inner
+                    .revparse_single(id)
+                    .with_context(|| format!("commit '{id}' not found"))?
+                    .peel_to_commit()
+                    .with_context(|| format!("'{id}' does not point to a commit"))?
+                    .id(),
+            ),
+            None => None,
+        };
 
         let mut revwalk = self.inner.revwalk().context("failed to create revwalk")?;
         revwalk.push(head.id())?;
-        if let Some(tag_commit) = last_tag_commit {
-            revwalk.hide(tag_commit.id())?;
+        if let Some(oid) = hide {
+            revwalk.hide(oid)?;
         }
 
         let mut commits = Vec::new();
@@ -120,6 +136,33 @@ impl GitRepository {
 
         commits.reverse();
         Ok(commits)
+    }
+
+    pub fn file_at_commit(&self, commit_id: &str, path: &str) -> Result<Option<String>> {
+        let commit = self
+            .inner
+            .revparse_single(commit_id)
+            .with_context(|| format!("commit '{commit_id}' not found"))?
+            .peel_to_commit()
+            .with_context(|| format!("'{commit_id}' does not point to a commit"))?;
+        let tree = commit.tree().context("failed to read commit tree")?;
+        let entry = match tree.get_path(Path::new(path)) {
+            Ok(entry) => entry,
+            Err(_) => return Ok(None),
+        };
+        let blob = self
+            .inner
+            .find_blob(entry.id())
+            .with_context(|| format!("failed to read blob for {path} at {commit_id}"))?;
+        Ok(Some(String::from_utf8_lossy(blob.content()).into_owned()))
+    }
+
+    pub fn commit_exists(&self, commit_id: &str) -> bool {
+        self.inner
+            .revparse_single(commit_id)
+            .ok()
+            .and_then(|object| object.peel_to_commit().ok())
+            .is_some()
     }
 
     pub fn commits_since_tag(&self, tag: &str) -> Result<Vec<CommitSummary>> {

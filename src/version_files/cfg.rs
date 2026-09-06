@@ -2,9 +2,7 @@ use std::{fs, path::Path};
 
 use anyhow::{Context, Result, bail};
 
-pub fn read_key(path: &Path, key: &str) -> Result<Option<String>> {
-    let contents =
-        fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
+pub fn read_key_from_contents(contents: &str, key: &str) -> Result<Option<String>> {
     let (section, name) = split_key(key)?;
     let mut current_section = String::new();
 
@@ -24,6 +22,12 @@ pub fn read_key(path: &Path, key: &str) -> Result<Option<String>> {
     }
 
     Ok(None)
+}
+
+pub fn read_key(path: &Path, key: &str) -> Result<Option<String>> {
+    let contents =
+        fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
+    read_key_from_contents(&contents, key)
 }
 
 pub fn rewrite_key(path: &Path, key: &str, version: &str) -> Result<()> {

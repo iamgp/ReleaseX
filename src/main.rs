@@ -1,4 +1,5 @@
 mod analysis;
+mod baseline;
 mod changelog;
 mod channels;
 mod cli;
@@ -8,6 +9,7 @@ mod cratesio;
 mod ecosystem;
 mod git;
 mod github;
+mod manifest;
 mod npm;
 mod prerelease;
 mod progress;

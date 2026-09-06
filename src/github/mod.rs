@@ -885,7 +885,16 @@ pub fn build_release_tag_plan(
             .map(|version| version.to_string())
             .unwrap_or_else(|| release_label.clone())
     };
-    let tag_name = if analysis.package_plan.release_mode == "release_set" {
+    let tag_name = if analysis.package_plan.selected_packages().len() == 1
+        && !analysis.package_plan.selected_packages()[0]
+            .release_tag
+            .is_empty()
+        && crate::baseline::uses_independent_package_identity(config)
+    {
+        analysis.package_plan.selected_packages()[0]
+            .release_tag
+            .clone()
+    } else if analysis.package_plan.release_mode == "release_set" {
         if let Some(version) = release_set_root_version(analysis)? {
             format!("{}{}", config.release.tag_prefix, version)
         } else {
@@ -992,6 +1001,7 @@ pub fn execute_release_pr(
         &plan.release_notes,
     )?;
     refresh_lockfile(&clone_path, config, &config.version_files)?;
+    write_release_manifest(&clone_path, repo, config, analysis, &plan.base)?;
 
     run_git(&clone_path, ["add", "."])?;
     let diff = run_git(&clone_path, ["status", "--short"])?;
@@ -1057,37 +1067,168 @@ pub fn prepare_release_workspace_check(
             format!("origin/{}", plan.base).as_str(),
         ],
     )?;
+    apply_prepared_workspace(&clone_path, repo, config, analysis, &plan)?;
+    println!("Release workspace prepared and validated locally; no branch or PR was changed.");
+    Ok(())
+}
 
+pub fn prepare_release_workspace(
+    repo: &GitRepository,
+    config: &Config,
+    analysis: &ReleaseAnalysis,
+) -> Result<()> {
+    let current_branch = repo.current_branch()?;
+    let mut plan = build_release_pr_plan(config, analysis, &current_branch)?;
+    enrich_pr_plan(repo, config, &mut plan);
+    apply_prepared_workspace(repo.path(), repo, config, analysis, &plan)?;
+    println!(
+        "Release workspace prepared in {}; committed manifest at {}",
+        repo.path().display(),
+        config.release.plan_file
+    );
+    Ok(())
+}
+
+pub fn verify_release_manifest(repo: &GitRepository, config: &Config) -> Result<()> {
+    let manifest = crate::manifest::ReleaseManifest::load(repo.path(), &config.release.plan_file)?;
+    manifest.validate_against_tree(repo.path(), config)?;
+    println!(
+        "Release manifest {} matches the current tree ({} selected package(s)).",
+        config.release.plan_file,
+        manifest.selected_packages().len()
+    );
+    for package in manifest.selected_packages() {
+        println!(
+            "  {} {} ({})",
+            package.name,
+            package.next_version.as_deref().unwrap_or("unchanged"),
+            package.release_tag
+        );
+    }
+    Ok(())
+}
+
+pub fn apply_manifest_to_analysis(
+    repo: &GitRepository,
+    config: &Config,
+    analysis: &mut ReleaseAnalysis,
+) -> Result<()> {
+    let manifest = crate::manifest::ReleaseManifest::load(repo.path(), &config.release.plan_file)?;
+    manifest.validate_against_tree(repo.path(), config)?;
+    let selected_names = manifest
+        .selected_packages()
+        .into_iter()
+        .map(|package| package.name.clone())
+        .collect::<std::collections::BTreeSet<_>>();
+    for package in &mut analysis.package_plan.packages {
+        let Some(planned) = manifest
+            .packages
+            .iter()
+            .find(|entry| entry.name == package.name)
+        else {
+            package.selected = false;
+            continue;
+        };
+        package.selected = planned.selected;
+        package.selection_reason = planned.selection_reason.clone();
+        package.release_tag = planned.release_tag.clone();
+        if planned.selected {
+            let version: crate::version::Version = planned
+                .next_version
+                .as_deref()
+                .context("selected manifest package has no next version")?
+                .parse()?;
+            package.next_version = Some(version.clone());
+            package.current_version = version;
+            package.bump = crate::version::BumpLevel::None;
+        }
+    }
+    if analysis.package_plan.selected_packages().is_empty() {
+        bail!(
+            "release manifest {} does not select any packages matching the current workspace",
+            config.release.plan_file
+        );
+    }
+    if analysis
+        .package_plan
+        .selected_packages()
+        .iter()
+        .any(|package| !selected_names.contains(&package.name))
+    {
+        bail!("current analysis selected packages that are not in the reviewed release manifest");
+    }
+    Ok(())
+}
+
+fn apply_prepared_workspace(
+    workspace: &Path,
+    repo: &GitRepository,
+    config: &Config,
+    analysis: &ReleaseAnalysis,
+    plan: &ReleasePrPlan,
+) -> Result<()> {
     let selected = analysis.package_plan.selected_packages();
     if selected.is_empty() {
         bail!("no releasable packages found");
     }
-    for package in selected {
+    for package in &selected {
         let next_version = package
             .next_version
             .as_ref()
             .context("selected package has no next version")?;
-        analysis::update_version_files(&clone_path, &package.version_files, next_version)?;
+        analysis::update_version_files(workspace, &package.version_files, next_version)?;
     }
-    sync_workspace_dependencies(&clone_path, config, analysis, &plan.base)?;
-    sync_prerelease_workspace_dependencies(&clone_path, config, analysis)?;
-    apply_release_replacements(&clone_path, config, analysis, &plan.base)?;
-    run_transformers(&clone_path, config, analysis, &plan.base)?;
-    changelog::prepend_release_notes(
-        &clone_path.join(&config.release.changelog_file),
-        &plan.release_notes,
-    )?;
-    let version_files = analysis
-        .package_plan
-        .selected_packages()
-        .into_iter()
+    sync_workspace_dependencies(workspace, config, analysis, &plan.base)?;
+    sync_prerelease_workspace_dependencies(workspace, config, analysis)?;
+    apply_release_replacements(workspace, config, analysis, &plan.base)?;
+    run_transformers(workspace, config, analysis, &plan.base)?;
+    if analysis.package_plan.release_mode == "per_package" && selected.len() == 1 {
+        let package = selected[0];
+        let changelog_path = if package.root == "." {
+            config.release.changelog_file.clone()
+        } else {
+            format!("{}/{}", package.root, config.release.changelog_file)
+        };
+        changelog::prepend_release_notes(&workspace.join(changelog_path), &plan.release_notes)?;
+    } else {
+        changelog::prepend_release_notes(
+            &workspace.join(&config.release.changelog_file),
+            &plan.release_notes,
+        )?;
+    }
+    let version_files = selected
+        .iter()
         .flat_map(|package| package.version_files.iter().cloned())
         .collect::<Vec<_>>();
     if !python_prerelease_workspace_applies(config, analysis) || config.prerelease.verify.lock {
-        refresh_lockfile(&clone_path, config, &version_files)?;
+        refresh_lockfile(workspace, config, &version_files)?;
     }
-    verify_prerelease_workspace(&clone_path, config, analysis)?;
-    println!("Release workspace prepared and validated locally; no branch or PR was changed.");
+    verify_prerelease_workspace(workspace, config, analysis)?;
+    write_release_manifest(workspace, repo, config, analysis, &plan.base)?;
+    Ok(())
+}
+
+fn write_release_manifest(
+    workspace: &Path,
+    repo: &GitRepository,
+    config: &Config,
+    analysis: &ReleaseAnalysis,
+    base_branch: &str,
+) -> Result<()> {
+    let mut manifest = crate::manifest::ReleaseManifest::from_analysis(
+        repo,
+        config,
+        analysis,
+        base_branch,
+        workspace,
+    )?;
+    if !manifest.covered_paths.contains(&config.release.plan_file) {
+        manifest
+            .covered_paths
+            .push(config.release.plan_file.clone());
+        manifest.covered_paths.sort();
+    }
+    manifest.write(workspace, &config.release.plan_file)?;
     Ok(())
 }
 
@@ -1181,6 +1322,7 @@ fn execute_monorepo_unified_pr(
         refresh_lockfile(&clone_path, config, &version_files)?;
     }
     verify_prerelease_workspace(&clone_path, config, analysis)?;
+    write_release_manifest(&clone_path, repo, config, analysis, &plan.base)?;
 
     run_git(&clone_path, ["add", "."])?;
     let diff = run_git(&clone_path, ["status", "--short"])?;
@@ -1275,6 +1417,7 @@ fn execute_monorepo_per_package_pr(
     };
     changelog::prepend_release_notes(&clone_path.join(&changelog_path), &plan.release_notes)?;
     refresh_lockfile(&clone_path, config, &package.version_files)?;
+    write_release_manifest(&clone_path, repo, config, package_analysis, &plan.base)?;
 
     run_git(&clone_path, ["add", "."])?;
     let diff = run_git(&clone_path, ["status", "--short"])?;
@@ -1429,6 +1572,9 @@ fn single_package_analysis(
                 changed_paths: package.changed_paths.clone(),
                 selected: true,
                 selection_reason: package.selection_reason.clone(),
+                baseline: package.baseline.clone(),
+                release_tag: package.release_tag.clone(),
+                required_dependency_changes: package.required_dependency_changes.clone(),
             }],
         },
     }
@@ -1512,6 +1658,11 @@ pub fn print_release_tag_dry_run(
             analysis.package_plan.release_mode,
             selected_package_summaries(analysis).join(", ")
         );
+        if crate::baseline::uses_independent_package_identity(config) {
+            for package in analysis.package_plan.selected_packages() {
+                println!("Would create package release tag `{}`", package.release_tag);
+            }
+        }
     }
     println!(
         "Would create and push tag `{}` to {}/{}",
@@ -1651,7 +1802,7 @@ fn monorepo_single_pr_mode(mode: &str) -> bool {
 }
 
 fn monorepo_single_tag_mode(mode: &str) -> bool {
-    matches!(mode, "unified" | "release_set")
+    matches!(mode, "unified")
 }
 
 fn release_notes_label(analysis: &ReleaseAnalysis) -> Result<String> {
@@ -1738,11 +1889,22 @@ fn today_utc() -> String {
 
 pub fn parse_remote_url(value: &str) -> Option<RepoRef> {
     let trimmed = value.trim().trim_end_matches(".git");
-    let cleaned = trimmed
+    let without_auth = if let Some(rest) = trimmed.strip_prefix("https://") {
+        rest.split_once('@')
+            .map(|(_, host)| format!("https://{host}"))
+            .unwrap_or(trimmed.to_string())
+    } else if let Some(rest) = trimmed.strip_prefix("http://") {
+        rest.split_once('@')
+            .map(|(_, host)| format!("http://{host}"))
+            .unwrap_or(trimmed.to_string())
+    } else {
+        trimmed.to_string()
+    };
+    let cleaned = without_auth
         .strip_prefix("git@github.com:")
-        .or_else(|| trimmed.strip_prefix("ssh://git@github.com/"))
-        .or_else(|| trimmed.strip_prefix("https://github.com/"))
-        .or_else(|| trimmed.strip_prefix("http://github.com/"))?;
+        .or_else(|| without_auth.strip_prefix("ssh://git@github.com/"))
+        .or_else(|| without_auth.strip_prefix("https://github.com/"))
+        .or_else(|| without_auth.strip_prefix("http://github.com/"))?;
     let mut parts = cleaned.split('/');
     let owner = parts.next()?.to_string();
     let name = parts.next()?.to_string();
@@ -2279,6 +2441,9 @@ mod tests {
                         changed_paths: vec!["pyproject.toml".to_string()],
                         selected: true,
                         selection_reason: "test".to_string(),
+                        baseline: Default::default(),
+                        release_tag: String::new(),
+                        required_dependency_changes: Vec::new(),
                     },
                     PackageReleaseAnalysis {
                         name: "phlo-delta".to_string(),
@@ -2305,6 +2470,9 @@ mod tests {
                         changed_paths: vec!["packages/delta/src/mod.py".to_string()],
                         selected: true,
                         selection_reason: "test".to_string(),
+                        baseline: Default::default(),
+                        release_tag: String::new(),
+                        required_dependency_changes: Vec::new(),
                     },
                 ],
             },
@@ -2373,6 +2541,9 @@ mod tests {
                     selected: false,
                     selection_reason: "no releasable package changes detected since the latest tag"
                         .to_string(),
+                    baseline: Default::default(),
+                    release_tag: String::new(),
+                    required_dependency_changes: Vec::new(),
                 }],
             },
         };
@@ -2442,6 +2613,9 @@ mod tests {
                     changed_paths: vec!["pyproject.toml".to_string()],
                     selected: true,
                     selection_reason: "test".to_string(),
+                    baseline: Default::default(),
+                    release_tag: String::new(),
+                    required_dependency_changes: Vec::new(),
                 }],
             },
         };
@@ -2476,6 +2650,9 @@ mod tests {
                         changed_paths: vec!["packages/dbt/src/phlo_dbt/cli.py".to_string()],
                         selected: true,
                         selection_reason: "test".to_string(),
+                        baseline: Default::default(),
+                        release_tag: String::new(),
+                        required_dependency_changes: Vec::new(),
                     },
                     PackageReleaseAnalysis {
                         name: "phlo-lineage".to_string(),
@@ -2504,6 +2681,9 @@ mod tests {
                         ],
                         selected: true,
                         selection_reason: "test".to_string(),
+                        baseline: Default::default(),
+                        release_tag: String::new(),
+                        required_dependency_changes: Vec::new(),
                     },
                 ],
             },
@@ -2829,6 +3009,9 @@ mod tests {
                         changed_paths: vec!["pyproject.toml".to_string()],
                         selected: true,
                         selection_reason: "test".to_string(),
+                        baseline: Default::default(),
+                        release_tag: String::new(),
+                        required_dependency_changes: Vec::new(),
                     },
                     PackageReleaseAnalysis {
                         name: "phlo-delta".to_string(),
@@ -2855,6 +3038,9 @@ mod tests {
                         changed_paths: vec!["packages/delta/src/mod.py".to_string()],
                         selected: true,
                         selection_reason: "test".to_string(),
+                        baseline: Default::default(),
+                        release_tag: String::new(),
+                        required_dependency_changes: Vec::new(),
                     },
                 ],
             },
@@ -2949,6 +3135,9 @@ mod tests {
                         changed_paths: vec!["packages/delta/src/mod.py".to_string()],
                         selected: true,
                         selection_reason: "test".to_string(),
+                        baseline: Default::default(),
+                        release_tag: String::new(),
+                        required_dependency_changes: Vec::new(),
                     },
                     PackageReleaseAnalysis {
                         name: "phlo-minio".to_string(),
@@ -2975,6 +3164,9 @@ mod tests {
                         changed_paths: vec!["packages/minio/src/mod.py".to_string()],
                         selected: true,
                         selection_reason: "test".to_string(),
+                        baseline: Default::default(),
+                        release_tag: String::new(),
+                        required_dependency_changes: Vec::new(),
                     },
                 ],
             },
@@ -3046,6 +3238,9 @@ mod tests {
                     changed_paths: Vec::new(),
                     selected: true,
                     selection_reason: "single-package repository".to_string(),
+                    baseline: Default::default(),
+                    release_tag: String::new(),
+                    required_dependency_changes: Vec::new(),
                 }],
             },
         }
@@ -3118,6 +3313,9 @@ mod tests {
                         } else {
                             "root prerelease".to_string()
                         },
+                        baseline: Default::default(),
+                        release_tag: String::new(),
+                        required_dependency_changes: Vec::new(),
                     },
                     PackageReleaseAnalysis {
                         name: "phlo-iceberg".to_string(),
@@ -3152,6 +3350,9 @@ mod tests {
                         } else {
                             "changed since latest tag".to_string()
                         },
+                        baseline: Default::default(),
+                        release_tag: String::new(),
+                        required_dependency_changes: Vec::new(),
                     },
                 ],
             },
@@ -3205,6 +3406,9 @@ mod tests {
                         changed_paths: vec!["packages/core/src/core.py".to_string()],
                         selected: true,
                         selection_reason: "changed".to_string(),
+                        baseline: Default::default(),
+                        release_tag: String::new(),
+                        required_dependency_changes: Vec::new(),
                     },
                     PackageReleaseAnalysis {
                         name: "cli".to_string(),
@@ -3231,6 +3435,9 @@ mod tests {
                         changed_paths: vec!["packages/cli/src/cli.py".to_string()],
                         selected: true,
                         selection_reason: "changed".to_string(),
+                        baseline: Default::default(),
+                        release_tag: String::new(),
+                        required_dependency_changes: Vec::new(),
                     },
                 ],
             },

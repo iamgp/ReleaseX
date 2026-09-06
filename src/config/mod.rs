@@ -76,6 +76,7 @@ impl Config {
         validate_replacements(&self.release.replacements)?;
         validate_transformers(&self.release.transformers)?;
         validate_promotion_config(&self.promotion, &self.release)?;
+        validate_monorepo_baselines(&self.monorepo)?;
 
         for channel in &self.channels {
             if channel.branch.trim().is_empty() {
@@ -168,6 +169,10 @@ pub struct MonorepoConfig {
     pub packages: Vec<String>,
     #[serde(default = "default_monorepo_release_mode")]
     pub release_mode: String,
+    #[serde(default)]
+    pub legacy_releases: Vec<LegacyReleaseConfig>,
+    #[serde(default)]
+    pub first_release_packages: Vec<String>,
 }
 
 impl MonorepoConfig {
@@ -182,8 +187,18 @@ impl Default for MonorepoConfig {
             enabled: false,
             packages: Vec::new(),
             release_mode: default_monorepo_release_mode(),
+            legacy_releases: Vec::new(),
+            first_release_packages: Vec::new(),
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LegacyReleaseConfig {
+    pub tag: String,
+    #[serde(default)]
+    pub commit: Option<String>,
+    pub packages: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -198,6 +213,8 @@ pub struct ReleaseConfig {
     pub pr_title: String,
     #[serde(default = "default_release_name")]
     pub release_name: String,
+    #[serde(default = "default_plan_file")]
+    pub plan_file: String,
     #[serde(default)]
     pub transformers: Vec<ReleaseTransformerConfig>,
     #[serde(default)]
@@ -212,6 +229,7 @@ impl Default for ReleaseConfig {
             changelog_file: default_changelog_file(),
             pr_title: default_pr_title(),
             release_name: default_release_name(),
+            plan_file: default_plan_file(),
             transformers: Vec::new(),
             replacements: Vec::new(),
         }
@@ -379,6 +397,10 @@ fn default_pr_title() -> String {
     "chore(release): {version}".to_string()
 }
 
+fn default_plan_file() -> String {
+    ".relx/release-manifest.json".to_string()
+}
+
 fn default_release_name() -> String {
     "{tag_name}".to_string()
 }
@@ -405,6 +427,48 @@ fn default_publish_dist_dir() -> String {
 
 fn default_monorepo_release_mode() -> String {
     "unified".to_string()
+}
+
+fn validate_monorepo_baselines(monorepo: &MonorepoConfig) -> Result<()> {
+    let mut seen_packages = std::collections::BTreeSet::new();
+    for package in &monorepo.first_release_packages {
+        if package.trim().is_empty() {
+            bail!("monorepo.first_release_packages entries must not be empty");
+        }
+        if !seen_packages.insert(package) {
+            bail!("monorepo.first_release_packages must contain unique names");
+        }
+    }
+    for entry in &monorepo.legacy_releases {
+        if entry.tag.trim().is_empty() {
+            bail!("monorepo.legacy_releases.tag must not be empty");
+        }
+        if entry.packages.is_empty()
+            || entry
+                .packages
+                .iter()
+                .any(|package| package.trim().is_empty())
+        {
+            bail!("monorepo.legacy_releases.packages must contain at least one package name");
+        }
+        if let Some(commit) = entry.commit.as_deref()
+            && commit.trim().is_empty()
+        {
+            bail!("monorepo.legacy_releases.commit must not be empty when provided");
+        }
+        for package in &entry.packages {
+            if monorepo
+                .first_release_packages
+                .iter()
+                .any(|first| first == package)
+            {
+                bail!(
+                    "package `{package}` cannot be both a first-release package and a legacy baseline package"
+                );
+            }
+        }
+    }
+    Ok(())
 }
 
 fn default_github_api_base() -> String {
@@ -942,6 +1006,8 @@ mod tests {
                 enabled: true,
                 packages: vec!["packages/core".to_string()],
                 release_mode: "per_package".to_string(),
+                legacy_releases: Vec::new(),
+                first_release_packages: Vec::new(),
             },
             version_files: Vec::new(),
             ..toml::from_str("").expect("default config")
@@ -957,6 +1023,8 @@ mod tests {
                 enabled: true,
                 packages: vec!["packages/core".to_string()],
                 release_mode: "release_set".to_string(),
+                legacy_releases: Vec::new(),
+                first_release_packages: Vec::new(),
             },
             version_files: Vec::new(),
             ..toml::from_str("").expect("default config")

@@ -140,35 +140,30 @@ fn next_prerelease_for_package(
 pub fn version_in_range(version: &Version, range: &str) -> bool {
     range.split(',').all(|raw| {
         let clause = raw.trim();
+        let parse = |value: &str| {
+            value.parse::<Version>().ok().or_else(|| {
+                let padded = match value.split('.').count() {
+                    1 => format!("{value}.0.0"),
+                    2 => format!("{value}.0"),
+                    _ => value.to_string(),
+                };
+                padded.parse().ok()
+            })
+        };
         if let Some(min) = clause.strip_prefix(">=") {
-            return min
-                .parse::<Version>()
-                .map(|v| version >= &v)
-                .unwrap_or(false);
+            return parse(min).is_some_and(|v| version >= &v);
         }
         if let Some(max) = clause.strip_prefix("<=") {
-            return max
-                .parse::<Version>()
-                .map(|v| version <= &v)
-                .unwrap_or(false);
+            return parse(max).is_some_and(|v| version <= &v);
         }
         if let Some(min) = clause.strip_prefix('>') {
-            return min
-                .parse::<Version>()
-                .map(|v| version > &v)
-                .unwrap_or(false);
+            return parse(min).is_some_and(|v| version > &v);
         }
         if let Some(max) = clause.strip_prefix('<') {
-            return max
-                .parse::<Version>()
-                .map(|v| version < &v)
-                .unwrap_or(false);
+            return parse(max).is_some_and(|v| version < &v);
         }
         if let Some(exact) = clause.strip_prefix("==") {
-            return exact
-                .parse::<Version>()
-                .map(|v| version == &v)
-                .unwrap_or(false);
+            return parse(exact).is_some_and(|v| version == &v);
         }
         false
     })

@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 
 use crate::{
-    analysis,
+    analysis::{self, AnalyzeOptions},
     changelog::PendingChangelog,
     channels,
     cli::{Cli, PreReleaseArgs, PreReleaseKind, ReleaseCommand, ReleaseSubcommand},
@@ -12,6 +12,27 @@ use crate::{
     publish,
     version::{BumpLevel, Suffix, Version},
 };
+
+fn analyze_cli(
+    repo: &GitRepository,
+    config: &Config,
+    packages: &[String],
+    channel: Option<&str>,
+) -> Result<analysis::ReleaseAnalysis> {
+    let branch = repo
+        .current_branch()
+        .unwrap_or_else(|_| "unknown".to_string());
+    let prerelease_kind = channels::resolve_channel(config, &branch, channel)
+        .and_then(|channel| channel.prerelease.clone());
+    analysis::analyze_with(
+        repo,
+        config,
+        &AnalyzeOptions {
+            packages: packages.to_vec(),
+            prerelease_kind,
+        },
+    )
+}
 
 fn apply_suffix_bump(version: &Version, kind: &PreReleaseKind) -> Result<Version> {
     match kind {
@@ -330,52 +351,79 @@ pub fn run(cli: &Cli, command: &ReleaseCommand) -> Result<()> {
 
     match &command.command {
         ReleaseSubcommand::Plan(args) => {
-            let mut analysis = analysis::analyze(&repo, &config)?;
+            let mut analysis = analyze_cli(&repo, &config, &args.package, None)?;
             let release_args = PreReleaseArgs {
                 channel: None,
                 next_version: None,
                 pre_release: None,
                 finalize: false,
+                package: args.package.clone(),
             };
             apply_channel_override(&repo, &config, &mut analysis, &release_args)?;
             let base = channels::release_base_branch(&config, &repo.current_branch()?);
-            let plan = crate::workspace_plan::ReleaseWorkspacePlan::from_analysis(
+            if analysis.package_plan.selected_packages().is_empty() {
+                anyhow::bail!("no releasable package set is pending from the current commit set");
+            }
+            let manifest = crate::manifest::ReleaseManifest::from_analysis(
+                &repo,
+                &config,
                 &analysis,
-                config.project.ecosystem,
-                base,
-            );
+                &base,
+                repo.path(),
+            )?;
             if args.json {
-                println!("{}", serde_json::to_string_pretty(&plan)?);
+                println!("{}", serde_json::to_string_pretty(&manifest)?);
             } else {
-                println!("Release workspace plan (schema {}):", plan.schema_version);
-                for package in plan.packages {
+                println!("Release plan (schema {}):", manifest.schema_version);
+                println!(
+                    "Preparation base: {} @ {}",
+                    manifest.preparation_base.ref_name, manifest.preparation_base.commit
+                );
+                for package in manifest.packages.iter().filter(|package| package.selected) {
                     println!(
-                        "{}: {} -> {} ({})",
+                        "{} [{}]: {} -> {} (tag {}, baseline {})",
                         package.name,
+                        package.path,
                         package.current_version,
+                        package.next_version.as_deref().unwrap_or("unchanged"),
+                        package.release_tag,
                         package
-                            .next_version
-                            .unwrap_or_else(|| "unchanged".to_string()),
-                        package.selection_reason
+                            .baseline
+                            .reference
+                            .as_deref()
+                            .unwrap_or(&package.baseline.kind)
+                    );
+                    println!("  {}", package.selection_reason);
+                }
+                for change in &manifest.required_dependency_changes {
+                    println!(
+                        "Required dependency change: {} must update {} to include {}",
+                        change.package, change.dependency, change.required_version
                     );
                 }
             }
         }
         ReleaseSubcommand::Prepare(args) => {
-            if !args.check {
-                anyhow::bail!("release prepare currently requires --check");
-            }
-            let mut analysis = analysis::analyze(&repo, &config)?;
+            let mut analysis = analyze_cli(
+                &repo,
+                &config,
+                &args.release.package,
+                args.release.channel.as_deref(),
+            )?;
             apply_channel_override(&repo, &config, &mut analysis, &args.release)?;
             apply_pre_release_override(&config, &mut analysis, &args.release)?;
-            github::prepare_release_workspace_check(&repo, &config, &analysis)?;
+            if args.check {
+                github::prepare_release_workspace_check(&repo, &config, &analysis)?;
+            } else {
+                github::prepare_release_workspace(&repo, &config, &analysis)?;
+            }
         }
         ReleaseSubcommand::Pr(args) => {
             let mut analysis = if cli.dry_run {
-                analysis::analyze(&repo, &config)?
+                analyze_cli(&repo, &config, &args.package, args.channel.as_deref())?
             } else {
                 let sp = progress::spinner("Analyzing commits…");
-                let result = analysis::analyze(&repo, &config);
+                let result = analyze_cli(&repo, &config, &args.package, args.channel.as_deref());
                 sp.finish_and_clear();
                 result?
             };
@@ -399,14 +447,18 @@ pub fn run(cli: &Cli, command: &ReleaseCommand) -> Result<()> {
         }
         ReleaseSubcommand::Tag(args) => {
             let mut analysis = if cli.dry_run {
-                analysis::analyze(&repo, &config)?
+                analyze_cli(&repo, &config, &args.package, args.channel.as_deref())?
             } else {
                 let sp = progress::spinner("Analyzing commits…");
-                let result = analysis::analyze(&repo, &config);
+                let result = analyze_cli(&repo, &config, &args.package, args.channel.as_deref());
                 sp.finish_and_clear();
                 result?
             };
-            adjust_for_merged_release_pr(&repo, &config, &mut analysis)?;
+            if crate::baseline::uses_independent_package_identity(&config) {
+                github::apply_manifest_to_analysis(&repo, &config, &mut analysis)?;
+            } else {
+                adjust_for_merged_release_pr(&repo, &config, &mut analysis)?;
+            }
             validate_next_version_channel(&config, &repo, args)?;
             validate_tag_next_version(&analysis, args)?;
             apply_channel_override(&repo, &config, &mut analysis, args)?;
@@ -488,6 +540,9 @@ pub fn run(cli: &Cli, command: &ReleaseCommand) -> Result<()> {
                 sp.finish_and_clear();
                 result?;
             }
+        }
+        ReleaseSubcommand::VerifyPlan(_) => {
+            github::verify_release_manifest(&repo, &config)?;
         }
     }
 
@@ -721,6 +776,7 @@ version = "0.2.4"
             next_version: None,
             pre_release: Some(PreReleaseKind::Beta),
             finalize: false,
+            package: Vec::new(),
         };
 
         apply_pre_release_override(&config, &mut analysis, &args).expect("apply beta override");
@@ -762,6 +818,7 @@ version = "0.2.4"
             next_version: None,
             pre_release: None,
             finalize: true,
+            package: Vec::new(),
         };
 
         apply_pre_release_override(&config, &mut analysis, &args).expect("apply finalize");
@@ -790,6 +847,7 @@ version = "0.2.4"
             next_version: Some("0.14.0".to_string()),
             pre_release: None,
             finalize: false,
+            package: Vec::new(),
         };
 
         apply_next_version_override(&mut analysis, &args).expect("apply version override");
@@ -817,6 +875,7 @@ version = "0.2.4"
                 next_version: Some(value.to_string()),
                 pre_release: None,
                 finalize: false,
+                package: Vec::new(),
             };
             assert!(apply_next_version_override(&mut analysis, &args).is_err());
         }
@@ -840,6 +899,7 @@ version = "0.2.4"
             next_version: Some("0.14.0".to_string()),
             pre_release: None,
             finalize: false,
+            package: Vec::new(),
         };
 
         assert!(validate_next_version_channel(&config, &repo, &args).is_err());
@@ -859,6 +919,7 @@ version = "0.2.4"
             next_version: Some("0.14.0".to_string()),
             pre_release: None,
             finalize: false,
+            package: Vec::new(),
         };
         validate_tag_next_version(&analysis, &matching).expect("matching prepared source");
 
@@ -926,6 +987,9 @@ version = "0.2.4"
                         changed_paths: Vec::new(),
                         selected: root_selected,
                         selection_reason: "test".to_string(),
+                        baseline: Default::default(),
+                        release_tag: String::new(),
+                        required_dependency_changes: Vec::new(),
                     },
                     PackageReleaseAnalysis {
                         name: "phlo-iceberg".to_string(),
@@ -952,6 +1016,9 @@ version = "0.2.4"
                         changed_paths: vec!["packages/iceberg/src/mod.py".to_string()],
                         selected: true,
                         selection_reason: "changed since latest tag".to_string(),
+                        baseline: Default::default(),
+                        release_tag: String::new(),
+                        required_dependency_changes: Vec::new(),
                     },
                 ],
             },
@@ -996,6 +1063,9 @@ version = "0.2.4"
             changed_paths: Vec::new(),
             selected: false,
             selection_reason: "test".to_string(),
+            baseline: Default::default(),
+            release_tag: String::new(),
+            required_dependency_changes: Vec::new(),
         });
         analysis
     }
