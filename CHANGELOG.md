@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.9.1] - 2026-09-07
+
+### Fixed
+- authenticate submodules in release clones ([#64](https://github.com/iamgp/ReleaseX/issues/64))
+
+### Contributors
+Thanks to our contributors for this release:
+- @iamgp (1 commit)
+
+---
+Full Changelog: https://github.com/iamgp/ReleaseX/compare/v1.9.0...v1.9.1
+
 ## [1.9.0] - 2026-09-07
 
 ### Added

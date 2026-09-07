@@ -4,9 +4,9 @@
   "release_mode": "single",
   "preparation_base": {
     "ref_name": "main",
-    "commit": "f2d03eda5527ffd39caa9e78109f0a92a6bb4649"
+    "commit": "4eb1e0620f311cb232ebf28ddfc67b0a64f794e9"
   },
-  "source_digest": "bcea9f38b9e66a92079087a9a71e0fefffd368d7e2b0e6fc2e6ce3303b92c426",
+  "source_digest": "448c7c2108625d24bc9b7c1d23f452e10410979285a41425f907c7160c9cf5f2",
   "covered_paths": [
     ".agents/resume",
     ".agents/setup",
@@ -93,19 +93,19 @@
       "path": ".",
       "selected": true,
       "selection_reason": "single-package repository",
-      "current_version": "1.8.0",
-      "next_version": "1.9.0",
-      "bump": "minor",
+      "current_version": "1.9.0",
+      "next_version": "1.9.1",
+      "bump": "patch",
       "baseline": {
         "kind": "none",
         "reference": null,
         "commit": null
       },
-      "release_tag": "v1.9.0",
+      "release_tag": "v1.9.1",
       "changes": [
         {
-          "id": "f2d03eda5527ffd39caa9e78109f0a92a6bb4649",
-          "message": "feat: recurse submodules in release clones (#62)"
+          "id": "4eb1e0620f311cb232ebf28ddfc67b0a64f794e9",
+          "message": "fix: authenticate submodules in release clones (#64)"
         }
       ]
     }
