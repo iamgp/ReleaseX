@@ -970,6 +970,7 @@ pub fn execute_release_pr(
         clone_dir.path(),
         vec![
             "clone".into(),
+            "--recurse-submodules".into(),
             repo.path().as_os_str().to_owned(),
             clone_path.as_os_str().to_owned(),
         ],
@@ -1054,6 +1055,7 @@ pub fn prepare_release_workspace_check(
         clone_dir.path(),
         vec![
             "clone".into(),
+            "--recurse-submodules".into(),
             repo.path().as_os_str().to_owned(),
             clone_path.as_os_str().to_owned(),
         ],
@@ -1279,6 +1281,7 @@ fn execute_monorepo_unified_pr(
         clone_dir.path(),
         vec![
             "clone".into(),
+            "--recurse-submodules".into(),
             repo.path().as_os_str().to_owned(),
             clone_path.as_os_str().to_owned(),
         ],
@@ -1383,6 +1386,7 @@ fn execute_monorepo_per_package_pr(
         clone_dir.path(),
         vec![
             "clone".into(),
+            "--recurse-submodules".into(),
             repo.path().as_os_str().to_owned(),
             clone_path.as_os_str().to_owned(),
         ],
