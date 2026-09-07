@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.9.0] - 2026-09-07
+
+### Added
+- recurse submodules in release clones ([#62](https://github.com/iamgp/ReleaseX/issues/62))
+
+### Contributors
+Thanks to our contributors for this release:
+- @iamgp (1 commit)
+
+---
+Full Changelog: https://github.com/iamgp/ReleaseX/compare/v1.8.0...v1.9.0
+
 ## [1.8.0] - 2026-09-06
 
 ### Added
