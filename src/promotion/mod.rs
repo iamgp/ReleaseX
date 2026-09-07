@@ -822,6 +822,7 @@ pub fn execute_versioned_preview(
         &clone_path,
         ["remote", "set-url", "origin", auth_url.as_str()],
     )?;
+    crate::github::update_submodules(&clone_path, &origin_url, &token)?;
     crate::git::run_git(
         &clone_path,
         ["checkout", "-B", branch.as_str(), plan.head_sha.as_str()],
