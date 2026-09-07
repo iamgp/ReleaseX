@@ -4,9 +4,9 @@
   "release_mode": "single",
   "preparation_base": {
     "ref_name": "main",
-    "commit": "977aafa6d22d13c29885c49b2218ed2f62760ca7"
+    "commit": "ae08635d0a38dc6bc37573ca8bb8ab4327f9cf90"
   },
-  "source_digest": "0c4c7f46ec1681343fc27f87b0362312975986406481426fd96d6f369c02d8b0",
+  "source_digest": "5d30f33f120cf867c82a0e55b157aeb0bf9ffbcc3888319c079e40274b5670a4",
   "covered_paths": [
     ".agents/resume",
     ".agents/setup",
@@ -93,19 +93,19 @@
       "path": ".",
       "selected": true,
       "selection_reason": "single-package repository",
-      "current_version": "1.9.2",
-      "next_version": "1.9.3",
+      "current_version": "1.9.3",
+      "next_version": "1.9.4",
       "bump": "patch",
       "baseline": {
         "kind": "none",
         "reference": null,
         "commit": null
       },
-      "release_tag": "v1.9.3",
+      "release_tag": "v1.9.4",
       "changes": [
         {
-          "id": "977aafa6d22d13c29885c49b2218ed2f62760ca7",
-          "message": "fix: authenticate credentialed clone origins (#68)"
+          "id": "ae08635d0a38dc6bc37573ca8bb8ab4327f9cf90",
+          "message": "fix: inherit submodule authentication (#70)"
         }
       ]
     }
