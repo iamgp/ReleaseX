@@ -35,6 +35,27 @@ pub(crate) fn authenticated_url(origin_url: &str, token: &str) -> String {
     }
 }
 
+pub(crate) fn update_submodules(repo_path: &Path, origin_url: &str, token: &str) -> Result<()> {
+    if let Some(host) = origin_url
+        .strip_prefix("https://")
+        .and_then(|url| url.split('/').next())
+    {
+        let source = format!("https://{host}/");
+        let destination = format!("https://x-access-token:{token}@{host}/");
+        run_git(
+            repo_path,
+            [
+                "config",
+                "--local",
+                &format!("url.{destination}.insteadOf"),
+                &source,
+            ],
+        )?;
+    }
+    run_git(repo_path, ["submodule", "update", "--init", "--recursive"])?;
+    Ok(())
+}
+
 pub(crate) fn release_commit_args(config: &Config, message: &str) -> Vec<String> {
     vec![
         "-c".to_string(),
@@ -980,6 +1001,7 @@ pub fn execute_release_pr(
         &clone_path,
         ["remote", "set-url", "origin", auth_url.as_str()],
     )?;
+    update_submodules(&clone_path, &origin_url, &token)?;
     run_git(&clone_path, ["fetch", "origin", plan.base.as_str()])?;
     run_git(
         &clone_path,
@@ -1068,6 +1090,10 @@ pub fn prepare_release_workspace_check(
             "relx-prepare-check",
             format!("origin/{}", plan.base).as_str(),
         ],
+    )?;
+    run_git(
+        &clone_path,
+        ["submodule", "update", "--init", "--recursive"],
     )?;
     apply_prepared_workspace(&clone_path, repo, config, analysis, &plan)?;
     println!("Release workspace prepared and validated locally; no branch or PR was changed.");
@@ -1291,6 +1317,7 @@ fn execute_monorepo_unified_pr(
         &clone_path,
         ["remote", "set-url", "origin", auth_url.as_str()],
     )?;
+    update_submodules(&clone_path, &origin_url, &token)?;
     run_git(&clone_path, ["fetch", "origin", plan.base.as_str()])?;
     run_git(
         &clone_path,
@@ -1396,6 +1423,7 @@ fn execute_monorepo_per_package_pr(
         &clone_path,
         ["remote", "set-url", "origin", auth_url.as_str()],
     )?;
+    update_submodules(&clone_path, &origin_url, &token)?;
     run_git(&clone_path, ["fetch", "origin", plan.base.as_str()])?;
     run_git(
         &clone_path,
