@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.9.3] - 2026-09-07
+
+### Fixed
+- authenticate credentialed clone origins ([#68](https://github.com/iamgp/ReleaseX/issues/68))
+
+### Contributors
+Thanks to our contributors for this release:
+- @iamgp (1 commit)
+
+---
+Full Changelog: https://github.com/iamgp/ReleaseX/compare/v1.9.2...v1.9.3
+
 ## [1.9.2] - 2026-09-07
 
 ### Fixed
