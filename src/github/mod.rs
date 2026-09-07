@@ -28,18 +28,15 @@ use crate::{
 };
 
 pub(crate) fn authenticated_url(origin_url: &str, token: &str) -> String {
-    if let Some(rest) = origin_url.strip_prefix("https://") {
-        format!("https://x-access-token:{token}@{rest}")
+    if let Some((host, path)) = https_url_parts(origin_url) {
+        format!("https://x-access-token:{token}@{host}{path}")
     } else {
         origin_url.to_string()
     }
 }
 
 pub(crate) fn update_submodules(repo_path: &Path, origin_url: &str, token: &str) -> Result<()> {
-    if let Some(host) = origin_url
-        .strip_prefix("https://")
-        .and_then(|url| url.split('/').next())
-    {
+    if let Some((host, _)) = https_url_parts(origin_url) {
         let source = format!("https://{host}/");
         let destination = format!("https://x-access-token:{token}@{host}/");
         run_git(
@@ -54,6 +51,19 @@ pub(crate) fn update_submodules(repo_path: &Path, origin_url: &str, token: &str)
     }
     run_git(repo_path, ["submodule", "update", "--init", "--recursive"])?;
     Ok(())
+}
+
+fn https_url_parts(url: &str) -> Option<(&str, &str)> {
+    let rest = url.strip_prefix("https://")?;
+    let (authority, path) = rest
+        .find('/')
+        .map_or((rest, ""), |index| (&rest[..index], &rest[index..]));
+    Some((
+        authority
+            .rsplit_once('@')
+            .map_or(authority, |(_, host)| host),
+        path,
+    ))
 }
 
 pub(crate) fn release_commit_args(config: &Config, message: &str) -> Vec<String> {
@@ -3503,5 +3513,16 @@ mod tests {
             "packages/api/src/service.yaml"
         ));
         assert!(!super::glob_matches("aa*aa", "aaa"));
+    }
+
+    #[test]
+    fn authenticated_url_replaces_existing_credentials() {
+        assert_eq!(
+            super::authenticated_url(
+                "https://x-access-token:old-token@example.invalid/parent",
+                "new-token",
+            ),
+            "https://x-access-token:new-token@example.invalid/parent"
+        );
     }
 }
