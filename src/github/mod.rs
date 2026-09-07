@@ -36,21 +36,30 @@ pub(crate) fn authenticated_url(origin_url: &str, token: &str) -> String {
 }
 
 pub(crate) fn update_submodules(repo_path: &Path, origin_url: &str, token: &str) -> Result<()> {
+    run_git(repo_path, submodule_update_args(origin_url, token))?;
+    Ok(())
+}
+
+fn submodule_update_args(origin_url: &str, token: &str) -> Vec<String> {
     if let Some((host, _)) = https_url_parts(origin_url) {
         let source = format!("https://{host}/");
         let destination = format!("https://x-access-token:{token}@{host}/");
-        run_git(
-            repo_path,
-            [
-                "config",
-                "--local",
-                &format!("url.{destination}.insteadOf"),
-                &source,
-            ],
-        )?;
+        vec![
+            "-c".to_string(),
+            format!("url.{destination}.insteadOf={source}"),
+            "submodule".to_string(),
+            "update".to_string(),
+            "--init".to_string(),
+            "--recursive".to_string(),
+        ]
+    } else {
+        vec![
+            "submodule".to_string(),
+            "update".to_string(),
+            "--init".to_string(),
+            "--recursive".to_string(),
+        ]
     }
-    run_git(repo_path, ["submodule", "update", "--init", "--recursive"])?;
-    Ok(())
 }
 
 fn https_url_parts(url: &str) -> Option<(&str, &str)> {
@@ -3523,6 +3532,21 @@ mod tests {
                 "new-token",
             ),
             "https://x-access-token:new-token@example.invalid/parent"
+        );
+    }
+
+    #[test]
+    fn submodule_update_passes_the_url_rewrite_to_git() {
+        assert_eq!(
+            super::submodule_update_args("https://example.invalid/parent", "token"),
+            [
+                "-c",
+                "url.https://x-access-token:token@example.invalid/.insteadOf=https://example.invalid/",
+                "submodule",
+                "update",
+                "--init",
+                "--recursive",
+            ]
         );
     }
 }
