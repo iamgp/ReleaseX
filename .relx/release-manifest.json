@@ -4,9 +4,9 @@
   "release_mode": "single",
   "preparation_base": {
     "ref_name": "main",
-    "commit": "4eb1e0620f311cb232ebf28ddfc67b0a64f794e9"
+    "commit": "94d1e40c90523b84cdcdff3061b70b5eeeb7ffbd"
   },
-  "source_digest": "448c7c2108625d24bc9b7c1d23f452e10410979285a41425f907c7160c9cf5f2",
+  "source_digest": "5c20704a0054be0f606954d066e4c33a59314359d09069d3deca3dfbcdb497e2",
   "covered_paths": [
     ".agents/resume",
     ".agents/setup",
@@ -93,19 +93,19 @@
       "path": ".",
       "selected": true,
       "selection_reason": "single-package repository",
-      "current_version": "1.9.0",
-      "next_version": "1.9.1",
+      "current_version": "1.9.1",
+      "next_version": "1.9.2",
       "bump": "patch",
       "baseline": {
         "kind": "none",
         "reference": null,
         "commit": null
       },
-      "release_tag": "v1.9.1",
+      "release_tag": "v1.9.2",
       "changes": [
         {
-          "id": "4eb1e0620f311cb232ebf28ddfc67b0a64f794e9",
-          "message": "fix: authenticate submodules in release clones (#64)"
+          "id": "94d1e40c90523b84cdcdff3061b70b5eeeb7ffbd",
+          "message": "fix: configure auth before cloning submodules (#66)"
         }
       ]
     }

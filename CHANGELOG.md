@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.9.2] - 2026-09-07
+
+### Fixed
+- configure auth before cloning submodules ([#66](https://github.com/iamgp/ReleaseX/issues/66))
+
+### Contributors
+Thanks to our contributors for this release:
+- @iamgp (1 commit)
+
+---
+Full Changelog: https://github.com/iamgp/ReleaseX/compare/v1.9.1...v1.9.2
+
 ## [1.9.1] - 2026-09-07
 
 ### Fixed
