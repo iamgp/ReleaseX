@@ -812,7 +812,6 @@ pub fn execute_versioned_preview(
         clone_dir.path(),
         vec![
             "clone".into(),
-            "--recurse-submodules".into(),
             repo.path().as_os_str().to_owned(),
             clone_path.as_os_str().to_owned(),
         ],
