@@ -4,9 +4,9 @@
   "release_mode": "single",
   "preparation_base": {
     "ref_name": "main",
-    "commit": "7f7a3c7812cd4663b8a813de0b2b08d76ad93ff8"
+    "commit": "f2d03eda5527ffd39caa9e78109f0a92a6bb4649"
   },
-  "source_digest": "7b8390f018c7e38dde075f04c70650dafe43600c5cbcfda80bc6a65162a24945",
+  "source_digest": "bcea9f38b9e66a92079087a9a71e0fefffd368d7e2b0e6fc2e6ce3303b92c426",
   "covered_paths": [
     ".agents/resume",
     ".agents/setup",
@@ -93,19 +93,19 @@
       "path": ".",
       "selected": true,
       "selection_reason": "single-package repository",
-      "current_version": "1.7.0",
-      "next_version": "1.8.0",
+      "current_version": "1.8.0",
+      "next_version": "1.9.0",
       "bump": "minor",
       "baseline": {
         "kind": "none",
         "reference": null,
         "commit": null
       },
-      "release_tag": "v1.8.0",
+      "release_tag": "v1.9.0",
       "changes": [
         {
-          "id": "7f7a3c7812cd4663b8a813de0b2b08d76ad93ff8",
-          "message": "feat: per-package release baselines and persisted selective plans (#60)"
+          "id": "f2d03eda5527ffd39caa9e78109f0a92a6bb4649",
+          "message": "feat: recurse submodules in release clones (#62)"
         }
       ]
     }
