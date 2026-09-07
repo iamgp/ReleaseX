@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.9.4] - 2026-09-07
+
+### Fixed
+- inherit submodule authentication ([#70](https://github.com/iamgp/ReleaseX/issues/70))
+
+### Contributors
+Thanks to our contributors for this release:
+- @iamgp (1 commit)
+
+---
+Full Changelog: https://github.com/iamgp/ReleaseX/compare/v1.9.3...v1.9.4
+
 ## [1.9.3] - 2026-09-07
 
 ### Fixed
